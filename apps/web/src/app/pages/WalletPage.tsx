@@ -1,0 +1,143 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useWallet } from '@vechain/dapp-kit-react';
+
+import Screen from '../components/Screen';
+import { useAuth } from '../../state/auth';
+import { apiPost } from '../../util/api';
+
+type TypedDataMessage = {
+  domain: Record<string, unknown>;
+  types: Record<string, Array<{ name: string; type: string }>>;
+  value: Record<string, unknown>;
+};
+
+type ChallengeResponse = {
+  challenge_id: string;
+  typed_data: TypedDataMessage;
+};
+
+type VerifyResponse = {
+  access_token: string;
+  user: { id: string; wallet_address: string; created_at: string };
+};
+
+export default function WalletPage() {
+  const nav = useNavigate();
+  const { state, setToken } = useAuth();
+  const { connect, setSource, account, signer } = useWallet();
+
+  const [isBusy, setIsBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Enforce VeWorld only (MVP).
+    setSource('veworld');
+  }, [setSource]);
+
+  const connectedAddress = useMemo(() => (account ? String(account) : null), [account]);
+
+  useEffect(() => {
+    if (state.status === 'logged_in') nav('/', { replace: true });
+  }, [nav, state.status]);
+
+  async function onLogin() {
+    setError(null);
+    setIsBusy(true);
+    try {
+      const res = await connect();
+      const addr = (res?.account ?? connectedAddress) as string | null;
+      if (!addr) throw new Error('wallet_not_connected');
+      if (!signer) throw new Error('wallet_signer_missing');
+
+      const challenge = await apiPost<ChallengeResponse>('/auth/challenge', { address: addr }, null);
+      const sig = await signer.signTypedData(
+        challenge.typed_data.domain,
+        challenge.typed_data.types,
+        challenge.typed_data.value
+      );
+
+      const verify = await apiPost<VerifyResponse>(
+        '/auth/verify',
+        { challenge_id: challenge.challenge_id, signature: sig },
+        null
+      );
+
+      setToken(verify.access_token);
+      nav('/', { replace: true });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  return (
+    <Screen>
+      <div className="mx-auto flex min-h-dvh max-w-[420px] flex-col px-5 pb-7 pt-10">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xl font-semibold tracking-tight">Wallet</div>
+            <div className="mt-1 text-xs text-white/50">Manage your assets</div>
+          </div>
+          <div className="h-10 w-10 rounded-full border border-white/10 bg-white/5" />
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="text-[10px] tracking-[0.24em] text-white/40">TOTAL BALANCE</div>
+          <div className="mt-2 text-2xl font-semibold">****</div>
+          <div className="mt-1 text-[11px] text-white/45">登录后查看余额</div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          {['Receive', 'Send', 'Swap'].map((label) => (
+            <div
+              key={label}
+              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-center text-xs text-white/70"
+            >
+              {label}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-white/10" />
+            <div className="flex-1">
+              <div className="text-sm font-medium">Connect X Account</div>
+              <div className="mt-0.5 text-xs text-white/50">绑定后可领取更多奖励</div>
+            </div>
+            <div className="text-white/30">{'>'}</div>
+          </div>
+        </div>
+
+        <div className="mt-auto">
+          <div className="text-center text-sm font-medium">登录以管理钱包</div>
+          <div className="mt-1 text-center text-xs text-white/55">
+            登录后可查看余额、发起扫描并领取积分
+          </div>
+
+          {error && (
+            <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={onLogin}
+            disabled={isBusy}
+            className="mt-5 w-full rounded-2xl bg-[#F59E0B] py-4 text-sm font-semibold text-black transition active:scale-[0.99] disabled:opacity-60"
+          >
+            {isBusy ? '登录中...' : '立即登录'}
+          </button>
+
+          <div className="mt-3 text-center text-[11px] text-white/45">
+            请使用 VeWorld 打开此应用完成登录
+          </div>
+        </div>
+      </div>
+    </Screen>
+  );
+}
