@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+function emptyToUndefined(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  return value.trim() === '' ? undefined : value;
+}
+
 const EnvSchema = z
   .object({
     PORT: z.coerce.number().int().positive().default(4000),
@@ -14,9 +19,9 @@ const EnvSchema = z
     S3_PRESIGN_EXPIRES_SECONDS: z.coerce.number().int().positive().default(300),
 
     DIFY_MODE: z.enum(['mock', 'workflow']).default('workflow'),
-    DIFY_API_URL: z.string().url().optional(),
-    DIFY_API_KEY: z.string().min(1).optional(),
-    DIFY_WORKFLOW_ID: z.string().min(1).optional(),
+    DIFY_API_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+    DIFY_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    DIFY_WORKFLOW_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
     DIFY_IMAGE_INPUT_KEY: z.string().min(1).default('image_url'),
     DIFY_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000)
   })
