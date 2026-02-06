@@ -23,7 +23,9 @@ Mobile-first receipt scanning app for bottle recycling incentives.
 2. Configure env:
    - `apps/api/.env` (see `apps/api/.env.example`)
    - `apps/web/.env` (see `apps/web/.env.example`)
-3. Run dev: `pnpm dev`
+3. Apply DB schema in Supabase:
+   - Run `supabase/migrations/20260206_init.sql` in the Supabase SQL editor
+4. Run dev: `pnpm dev`
 
 ## Notes
 
