@@ -143,7 +143,8 @@ async function main() {
 
     if (!ok) return reply.code(401).send({ error: 'invalid_signature' });
 
-    await repo.markAuthChallengeUsed(challenge.id);
+    const claimed = await repo.markAuthChallengeUsed(challenge.id);
+    if (!claimed) return reply.code(401).send({ error: 'challenge_used' });
 
     const user = await repo.getOrCreateUser(challenge.wallet_address);
     const token = await reply.jwtSign(
@@ -179,17 +180,24 @@ async function main() {
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
 
     const { sub: userId } = (request as AuthedRequest).user;
+    const contentType = parsed.data.content_type.split(';')[0]?.trim().toLowerCase() ?? '';
+    if (!ALLOWED_UPLOAD_CONTENT_TYPES.has(contentType)) {
+      return reply.code(400).send({ error: 'unsupported_content_type' });
+    }
+
     const existing = await repo.getSubmissionByClientId({
       user_id: userId,
       client_submission_id: parsed.data.client_submission_id
     });
 
     const ext =
-      parsed.data.content_type === 'image/png'
+      contentType === 'image/png'
         ? 'png'
-        : parsed.data.content_type === 'image/jpeg'
+        : contentType === 'image/jpeg'
           ? 'jpg'
-          : parsed.data.content_type === 'image/heic' || parsed.data.content_type === 'image/heif'
+          : contentType === 'image/webp'
+            ? 'webp'
+            : contentType === 'image/heic' || contentType === 'image/heif'
             ? 'heic'
             : 'bin';
 
@@ -199,7 +207,7 @@ async function main() {
           s3,
           bucket: existing.image_bucket,
           key: existing.image_key,
-          contentType: existing.image_content_type || parsed.data.content_type,
+          contentType: existing.image_content_type || contentType,
           expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
         });
         return reply.send({ submission: existing, upload: { method: 'PUT', ...upload } });
@@ -210,21 +218,46 @@ async function main() {
     const submissionId = randomUUID();
     const imageKey = `receipts/${userId}/${parsed.data.client_submission_id}.${ext}`;
 
-    const created = await repo.createSubmission({
-      id: submissionId,
-      user_id: userId,
-      client_submission_id: parsed.data.client_submission_id,
-      status: 'pending_upload',
-      image_bucket: config.S3_BUCKET,
-      image_key: imageKey,
-      image_content_type: parsed.data.content_type
-    });
+    let created = null as any;
+    try {
+      created = await repo.createSubmission({
+        id: submissionId,
+        user_id: userId,
+        client_submission_id: parsed.data.client_submission_id,
+        status: 'pending_upload',
+        image_bucket: config.S3_BUCKET,
+        image_key: imageKey,
+        image_content_type: contentType
+      });
+    } catch (err) {
+      // If the DB has a uniqueness constraint on (user_id, client_submission_id),
+      // this makes init idempotent under races.
+      request.log.warn({ err }, 'create_submission_failed');
+      const again = await repo.getSubmissionByClientId({
+        user_id: userId,
+        client_submission_id: parsed.data.client_submission_id
+      });
+      if (again) {
+        if (again.status === 'pending_upload') {
+          const upload = await presignPutObject({
+            s3,
+            bucket: again.image_bucket,
+            key: again.image_key,
+            contentType: again.image_content_type || contentType,
+            expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
+          });
+          return reply.send({ submission: again, upload: { method: 'PUT', ...upload } });
+        }
+        return reply.send({ submission: again, upload: null });
+      }
+      throw err;
+    }
 
     const upload = await presignPutObject({
       s3,
       bucket: created.image_bucket,
       key: created.image_key,
-      contentType: created.image_content_type || parsed.data.content_type,
+      contentType: created.image_content_type || contentType,
       expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
     });
 
@@ -233,11 +266,23 @@ async function main() {
 
   app.post('/submissions/:id/complete', { preHandler: authenticate }, async (request: any, reply) => {
     const { sub: userId } = (request as AuthedRequest).user;
-    const submission = await repo.getSubmissionById(request.params.id);
+    const Params = z.object({ id: z.string().uuid() });
+    const parsedParams = Params.safeParse(request.params);
+    if (!parsedParams.success) return reply.code(400).send({ error: 'invalid_params' });
+
+    const submission = await repo.getSubmissionById(parsedParams.data.id);
     if (!submission || submission.user_id !== userId) return reply.code(404).send({ error: 'not_found' });
 
     if (submission.status === 'pending_upload') {
-      const updated = await repo.updateSubmission(submission.id, { status: 'uploaded' });
+      const meta = await headObject({ s3, bucket: submission.image_bucket, key: submission.image_key });
+      if (!meta) return reply.code(409).send({ error: 'upload_not_found' });
+
+      const updated =
+        (await repo.updateSubmissionStatusIfCurrent({
+          id: submission.id,
+          from: 'pending_upload',
+          to: 'uploaded'
+        })) ?? submission;
       return reply.send({ submission: updated });
     }
 
