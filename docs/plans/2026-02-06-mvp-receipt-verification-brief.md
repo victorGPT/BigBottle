@@ -125,6 +125,15 @@ Submissions:
 - `wallet_address text unique not null` (lowercased)
 - `created_at timestamptz not null default now()`
 
+`auth_challenges`
+
+- `id uuid pk`
+- `wallet_address text not null` (lowercased)
+- `nonce text not null`
+- `expires_at timestamptz not null`
+- `used_at timestamptz`
+- `created_at timestamptz not null default now()`
+
 `receipt_submissions`
 
 - `id uuid pk`
