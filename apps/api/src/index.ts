@@ -41,6 +41,8 @@ const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
   'application/octet-stream'
 ]);
 
+const SubmissionIdParams = z.object({ id: z.string().uuid() });
+
 function requireAuth() {
   return async function authenticate(request: any, reply: any) {
     try {
@@ -72,10 +74,17 @@ async function main() {
   });
 
   app.setErrorHandler((err, request, reply) => {
-    request.log.error({ err }, 'unhandled_error');
-    if (reply.sent) return;
     const statusCode = typeof (err as any)?.statusCode === 'number' ? (err as any).statusCode : 500;
-    reply.code(statusCode >= 400 && statusCode < 600 ? statusCode : 500).send({ error: 'internal_error' });
+    if (statusCode >= 500) {
+      request.log.error({ err }, 'unhandled_error');
+    } else {
+      request.log.warn({ err }, 'request_error');
+    }
+    if (reply.sent) return;
+    if (statusCode >= 500) {
+      return reply.code(500).send({ error: 'internal_error' });
+    }
+    return reply.code(statusCode >= 400 && statusCode < 600 ? statusCode : 400).send({ error: 'bad_request' });
   });
 
   const authenticate = requireAuth();
@@ -180,15 +189,30 @@ async function main() {
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
 
     const { sub: userId } = (request as AuthedRequest).user;
-    const contentType = parsed.data.content_type.split(';')[0]?.trim().toLowerCase() ?? '';
-    if (!ALLOWED_UPLOAD_CONTENT_TYPES.has(contentType)) {
-      return reply.code(400).send({ error: 'unsupported_content_type' });
-    }
-
     const existing = await repo.getSubmissionByClientId({
       user_id: userId,
       client_submission_id: parsed.data.client_submission_id
     });
+
+    if (existing) {
+      if (existing.status === 'pending_upload') {
+        const existingContentType = existing.image_content_type || 'application/octet-stream';
+        const upload = await presignPutObject({
+          s3,
+          bucket: existing.image_bucket,
+          key: existing.image_key,
+          contentType: existingContentType,
+          expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
+        });
+        return reply.send({ submission: existing, upload: { method: 'PUT', ...upload } });
+      }
+      return reply.send({ submission: existing, upload: null });
+    }
+
+    const contentType = parsed.data.content_type.split(';')[0]?.trim().toLowerCase() ?? '';
+    if (!ALLOWED_UPLOAD_CONTENT_TYPES.has(contentType)) {
+      return reply.code(400).send({ error: 'unsupported_content_type' });
+    }
 
     const ext =
       contentType === 'image/png'
@@ -198,27 +222,13 @@ async function main() {
           : contentType === 'image/webp'
             ? 'webp'
             : contentType === 'image/heic' || contentType === 'image/heif'
-            ? 'heic'
-            : 'bin';
-
-    if (existing) {
-      if (existing.status === 'pending_upload') {
-        const upload = await presignPutObject({
-          s3,
-          bucket: existing.image_bucket,
-          key: existing.image_key,
-          contentType: existing.image_content_type || contentType,
-          expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
-        });
-        return reply.send({ submission: existing, upload: { method: 'PUT', ...upload } });
-      }
-      return reply.send({ submission: existing, upload: null });
-    }
+              ? 'heic'
+              : 'bin';
 
     const submissionId = randomUUID();
     const imageKey = `receipts/${userId}/${parsed.data.client_submission_id}.${ext}`;
 
-    let created = null as any;
+    let created: Awaited<ReturnType<typeof repo.createSubmission>>;
     try {
       created = await repo.createSubmission({
         id: submissionId,
@@ -266,8 +276,7 @@ async function main() {
 
   app.post('/submissions/:id/complete', { preHandler: authenticate }, async (request: any, reply) => {
     const { sub: userId } = (request as AuthedRequest).user;
-    const Params = z.object({ id: z.string().uuid() });
-    const parsedParams = Params.safeParse(request.params);
+    const parsedParams = SubmissionIdParams.safeParse(request.params);
     if (!parsedParams.success) return reply.code(400).send({ error: 'invalid_params' });
 
     const submission = await repo.getSubmissionById(parsedParams.data.id);
@@ -291,27 +300,45 @@ async function main() {
 
   app.post('/submissions/:id/verify', { preHandler: authenticate }, async (request: any, reply) => {
     const { sub: userId, wallet } = (request as AuthedRequest).user;
-    const submission = await repo.getSubmissionById(request.params.id);
+    const parsedParams = SubmissionIdParams.safeParse(request.params);
+    if (!parsedParams.success) return reply.code(400).send({ error: 'invalid_params' });
+
+    const submission = await repo.getSubmissionById(parsedParams.data.id);
     if (!submission || submission.user_id !== userId) return reply.code(404).send({ error: 'not_found' });
 
     if (['verified', 'rejected', 'not_claimable'].includes(submission.status)) {
-      return reply.send({ submission });
-    }
-    if (submission.status === 'verifying') {
       return reply.send({ submission });
     }
     if (submission.status === 'pending_upload') {
       return reply.code(409).send({ error: 'upload_incomplete' });
     }
 
-    await repo.updateSubmission(submission.id, { status: 'verifying' });
-    const nowIso = new Date().toISOString();
+    if (submission.status === 'verifying') {
+      return reply.send({ submission });
+    }
+
+    const claimed = await repo.updateSubmissionStatusIfCurrent({
+      id: submission.id,
+      from: 'uploaded',
+      to: 'verifying'
+    });
+    if (!claimed) {
+      const fresh = await repo.getSubmissionById(submission.id);
+      if (!fresh || fresh.user_id !== userId) return reply.code(404).send({ error: 'not_found' });
+      return reply.send({ submission: fresh });
+    }
 
     try {
+      const meta = await headObject({ s3, bucket: claimed.image_bucket, key: claimed.image_key });
+      if (!meta) {
+        const reset = await repo.updateSubmission(claimed.id, { status: 'pending_upload' });
+        return reply.code(409).send({ error: 'upload_incomplete', submission: reset });
+      }
+
       const getUrl = await presignGetObject({
         s3,
-        bucket: submission.image_bucket,
-        key: submission.image_key,
+        bucket: claimed.image_bucket,
+        key: claimed.image_key,
         expiresInSeconds: Math.max(60, config.S3_PRESIGN_EXPIRES_SECONDS)
       });
 
@@ -319,15 +346,23 @@ async function main() {
       const payload = extractDifyReceiptPayload(difyRaw);
 
       if (!payload) {
-        const updated = await repo.updateSubmission(submission.id, {
+        const updated = await repo.updateSubmission(claimed.id, {
           status: 'rejected',
           dify_raw: difyRaw as any,
           points_total: 0,
-          verified_at: nowIso
+          verified_at: new Date().toISOString()
         });
         return reply.send({ submission: updated });
       }
 
+      if (typeof payload.user_id === 'string') {
+        const difyUser = payload.user_id.trim();
+        if (difyUser && difyUser !== wallet) {
+          request.log.warn({ difyUser, wallet }, 'dify_user_id_mismatch_ignored');
+        }
+      }
+
+      const nowIso = new Date().toISOString();
       const retinfoIsAvaildRaw =
         typeof payload.retinfoIsAvaild === 'string'
           ? payload.retinfoIsAvaild
@@ -351,7 +386,7 @@ async function main() {
 
       const finalStatus = ok ? (totalPoints > 0 ? 'verified' : 'not_claimable') : 'rejected';
 
-      const updated = await repo.updateSubmission(submission.id, {
+      const updated = await repo.updateSubmission(claimed.id, {
         status: finalStatus,
         dify_raw: difyRaw as any,
         dify_drink_list: (payload.drinkList ?? null) as any,
@@ -365,10 +400,15 @@ async function main() {
       return reply.send({ submission: updated });
     } catch (err) {
       request.log.error({ err }, 'verification_failed');
-      const updated = await repo.updateSubmission(submission.id, {
+      const updated = await repo.updateSubmission(claimed.id, {
         status: 'rejected',
+        dify_raw: {
+          error: 'verification_failed',
+          message: err instanceof Error ? err.message : String(err),
+          at: new Date().toISOString()
+        } as any,
         points_total: 0,
-        verified_at: nowIso
+        verified_at: new Date().toISOString()
       });
       return reply.send({ submission: updated });
     }
@@ -382,7 +422,10 @@ async function main() {
 
   app.get('/submissions/:id', { preHandler: authenticate }, async (request: any, reply) => {
     const { sub: userId } = (request as AuthedRequest).user;
-    const submission = await repo.getSubmissionById(request.params.id);
+    const parsedParams = SubmissionIdParams.safeParse(request.params);
+    if (!parsedParams.success) return reply.code(400).send({ error: 'invalid_params' });
+
+    const submission = await repo.getSubmissionById(parsedParams.data.id);
     if (!submission || submission.user_id !== userId) return reply.code(404).send({ error: 'not_found' });
     return reply.send({ submission });
   });
