@@ -1,0 +1,194 @@
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { AppConfig } from './config.js';
+
+export type DbUser = {
+  id: string;
+  wallet_address: string;
+  created_at: string;
+};
+
+export type DbAuthChallenge = {
+  id: string;
+  wallet_address: string;
+  nonce: string;
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
+};
+
+export type DbReceiptSubmission = {
+  id: string;
+  user_id: string;
+  client_submission_id: string;
+  status: string;
+  image_bucket: string;
+  image_key: string;
+  image_content_type: string | null;
+  dify_raw: unknown | null;
+  dify_drink_list: unknown | null;
+  receipt_time_raw: string | null;
+  retinfo_is_availd: string | null;
+  time_threshold: string | null;
+  points_total: number;
+  verified_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function ensureOk<T>(
+  res: { data: T; error: unknown | null },
+  message: string
+): T {
+  if (res.error) {
+    const errText =
+      typeof res.error === 'object' ? JSON.stringify(res.error) : String(res.error);
+    throw new Error(`${message}: ${errText}`);
+  }
+  return res.data;
+}
+
+export function createSupabaseAdmin(config: AppConfig): SupabaseClient {
+  return createClient(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  });
+}
+
+export function createRepo(supabase: SupabaseClient) {
+  return {
+    async getOrCreateUser(walletAddressLower: string): Promise<DbUser> {
+      const upsertRes = await supabase
+        .from('users')
+        .upsert(
+          {
+            wallet_address: walletAddressLower
+          },
+          { onConflict: 'wallet_address' }
+        )
+        .select('*')
+        .single();
+
+      return ensureOk(upsertRes, 'Failed to upsert user') as DbUser;
+    },
+
+    async createAuthChallenge(input: {
+      id: string;
+      wallet_address: string;
+      nonce: string;
+      expires_at: string;
+    }): Promise<DbAuthChallenge> {
+      const res = await supabase
+        .from('auth_challenges')
+        .insert(input)
+        .select('*')
+        .single();
+      return ensureOk(res, 'Failed to create auth challenge') as DbAuthChallenge;
+    },
+
+    async getAuthChallenge(id: string): Promise<DbAuthChallenge | null> {
+      const res = await supabase
+        .from('auth_challenges')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch auth challenge');
+      return (data as DbAuthChallenge) ?? null;
+    },
+
+    async markAuthChallengeUsed(id: string): Promise<boolean> {
+      const res = await supabase
+        .from('auth_challenges')
+        .update({ used_at: new Date().toISOString() })
+        .eq('id', id)
+        .is('used_at', null)
+        .select('id')
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to mark auth challenge used');
+      return data !== null;
+    },
+
+    async getSubmissionById(id: string): Promise<DbReceiptSubmission | null> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch submission');
+      return (data as DbReceiptSubmission) ?? null;
+    },
+
+    async getSubmissionByClientId(input: {
+      user_id: string;
+      client_submission_id: string;
+    }): Promise<DbReceiptSubmission | null> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .select('*')
+        .eq('user_id', input.user_id)
+        .eq('client_submission_id', input.client_submission_id)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch submission by client id');
+      return (data as DbReceiptSubmission) ?? null;
+    },
+
+    async createSubmission(input: {
+      id: string;
+      user_id: string;
+      client_submission_id: string;
+      status: string;
+      image_bucket: string;
+      image_key: string;
+      image_content_type: string | null;
+    }): Promise<DbReceiptSubmission> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .insert(input)
+        .select('*')
+        .single();
+      return ensureOk(res, 'Failed to create submission') as DbReceiptSubmission;
+    },
+
+    async updateSubmission(
+      id: string,
+      patch: Partial<Omit<DbReceiptSubmission, 'id' | 'user_id' | 'created_at'>>
+    ): Promise<DbReceiptSubmission> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .update(patch)
+        .eq('id', id)
+        .select('*')
+        .single();
+      return ensureOk(res, 'Failed to update submission') as DbReceiptSubmission;
+    },
+
+    async updateSubmissionStatusIfCurrent(input: {
+      id: string;
+      from: string;
+      to: string;
+    }): Promise<DbReceiptSubmission | null> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .update({ status: input.to })
+        .eq('id', input.id)
+        .eq('status', input.from)
+        .select('*')
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to update submission status');
+      return (data as DbReceiptSubmission) ?? null;
+    },
+
+    async listSubmissions(userId: string, limit = 20): Promise<DbReceiptSubmission[]> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      return ensureOk(res, 'Failed to list submissions') as DbReceiptSubmission[];
+    }
+  };
+}
+
+export type Repo = ReturnType<typeof createRepo>;
