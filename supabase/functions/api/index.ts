@@ -674,9 +674,22 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       return jsonResponse(config, req, 200, { ok: true });
     }
 
-    const supabase = createSupabaseAdmin(config);
-    const repo = createRepo(supabase);
-    const s3 = createS3Client(config);
+    // Lazily initialize heavy clients only for routes that need them.
+    // This avoids hard failures on unknown routes and keeps `/health` extremely cheap.
+    let repo: ReturnType<typeof createRepo> | null = null;
+    const getRepo = (): ReturnType<typeof createRepo> => {
+      if (!repo) {
+        const supabase = createSupabaseAdmin(config);
+        repo = createRepo(supabase);
+      }
+      return repo;
+    };
+
+    let s3: S3Client | null = null;
+    const getS3 = (): S3Client => {
+      if (!s3) s3 = createS3Client(config);
+      return s3;
+    };
 
     // --- Auth ---
     if (req.method === 'POST' && ctx.routePath === '/auth/challenge') {
@@ -692,7 +705,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       const nonce = randomHex(16);
       const expiresAtIso = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
-      await repo.createAuthChallenge({
+      await getRepo().createAuthChallenge({
         id: challengeId,
         wallet_address: wallet.lower,
         nonce,
@@ -718,7 +731,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       const signature = typeof body.signature === 'string' ? body.signature.trim() : '';
       if (!challengeId || !signature) return errorResponse(config, req, 400, 'invalid_body');
 
-      const challenge = await repo.getAuthChallenge(challengeId);
+      const challenge = await getRepo().getAuthChallenge(challengeId);
       if (!challenge) return errorResponse(config, req, 401, 'invalid_challenge');
       if (challenge.used_at) return errorResponse(config, req, 401, 'challenge_used');
       if (Date.parse(challenge.expires_at) <= Date.now()) return errorResponse(config, req, 401, 'challenge_expired');
@@ -731,10 +744,10 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       });
       if (!ok) return errorResponse(config, req, 401, 'invalid_signature');
 
-      const claimed = await repo.markAuthChallengeUsed(challenge.id);
+      const claimed = await getRepo().markAuthChallengeUsed(challenge.id);
       if (!claimed) return errorResponse(config, req, 401, 'challenge_used');
 
-      const user = await repo.getOrCreateUser(challenge.wallet_address);
+      const user = await getRepo().getOrCreateUser(challenge.wallet_address);
       const token = await signAccessToken(config, { sub: user.id, wallet: user.wallet_address });
 
       return jsonResponse(config, req, 200, {
@@ -747,7 +760,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       const authed = await requireAuth(config, req);
       if (!authed) return errorResponse(config, req, 401, 'unauthorized');
 
-      const user = await repo.getOrCreateUser(authed.wallet);
+      const user = await getRepo().getOrCreateUser(authed.wallet);
       if (user.id !== authed.sub) {
         // Not fatal in Phase 1, but useful for debugging.
         console.warn('token_user_id_mismatch', { tokenUserId: authed.sub, dbUserId: user.id });
@@ -760,6 +773,9 @@ const handleRequest: (config: AppConfig) => HttpHandler =
     if (req.method === 'POST' && ctx.routePath === '/submissions/init') {
       const authed = await requireAuth(config, req);
       if (!authed) return errorResponse(config, req, 401, 'unauthorized');
+
+      const repo = getRepo();
+      const s3 = getS3();
 
       const body = await readJson(req);
       if (!isRecord(body)) return errorResponse(config, req, 400, 'invalid_body');
@@ -856,6 +872,9 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       const submissionId = parseUuid(completeMatch[1]);
       if (!submissionId) return errorResponse(config, req, 400, 'invalid_params');
 
+      const repo = getRepo();
+      const s3 = getS3();
+
       const submission = await repo.getSubmissionById(submissionId);
       if (!submission || submission.user_id !== authed.sub) return errorResponse(config, req, 404, 'not_found');
 
@@ -878,6 +897,9 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       if (!authed) return errorResponse(config, req, 401, 'unauthorized');
       const submissionId = parseUuid(verifyMatch[1]);
       if (!submissionId) return errorResponse(config, req, 400, 'invalid_params');
+
+      const repo = getRepo();
+      const s3 = getS3();
 
       const submission = await repo.getSubmissionById(submissionId);
       if (!submission || submission.user_id !== authed.sub) return errorResponse(config, req, 404, 'not_found');
@@ -983,7 +1005,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
     if (req.method === 'GET' && ctx.routePath === '/submissions') {
       const authed = await requireAuth(config, req);
       if (!authed) return errorResponse(config, req, 401, 'unauthorized');
-      const rows = await repo.listSubmissions(authed.sub, 50);
+      const rows = await getRepo().listSubmissions(authed.sub, 50);
       return jsonResponse(config, req, 200, { submissions: rows });
     }
 
@@ -994,7 +1016,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       const submissionId = parseUuid(getMatch[1]);
       if (!submissionId) return errorResponse(config, req, 400, 'invalid_params');
 
-      const submission = await repo.getSubmissionById(submissionId);
+      const submission = await getRepo().getSubmissionById(submissionId);
       if (!submission || submission.user_id !== authed.sub) return errorResponse(config, req, 404, 'not_found');
       return jsonResponse(config, req, 200, { submission });
     }
