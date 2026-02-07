@@ -25,15 +25,46 @@ type VerifyResponse = {
 export default function WalletPage() {
   const nav = useNavigate();
   const { state, setToken } = useAuth();
-  const { connect, setSource, account, signer } = useWallet();
+  const { connect, setSource, account, signer, source } = useWallet();
 
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [hasVeWorld, setHasVeWorld] = useState(() => {
+    // DAppKit considers VeWorld "installed" when window.vechain exists.
+    return typeof window !== 'undefined' && Boolean((window as unknown as { vechain?: unknown }).vechain);
+  });
+
   useEffect(() => {
-    // Enforce VeWorld only (MVP).
-    setSource('veworld');
-  }, [setSource]);
+    if (hasVeWorld) return;
+
+    // Some environments may inject `window.vechain` slightly after initial load.
+    // Poll briefly to avoid permanently disabling login.
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      tries += 1;
+      const injected = Boolean((window as unknown as { vechain?: unknown }).vechain);
+      if (injected) {
+        window.clearInterval(timer);
+        setHasVeWorld(true);
+        return;
+      }
+      if (tries >= 20) window.clearInterval(timer);
+    }, 250);
+
+    return () => window.clearInterval(timer);
+  }, [hasVeWorld]);
+
+  useEffect(() => {
+    if (!hasVeWorld) return;
+    // Enforce VeWorld only (MVP). Guard to avoid crashing in unsupported environments.
+    try {
+      setSource('veworld');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+    }
+  }, [hasVeWorld, setSource]);
 
   const connectedAddress = useMemo(() => (account ? String(account) : null), [account]);
 
@@ -43,8 +74,14 @@ export default function WalletPage() {
 
   async function onLogin() {
     setError(null);
+    if (!hasVeWorld) {
+      setError('未检测到 VeWorld。请使用 VeWorld 打开此页面后再登录。');
+      return;
+    }
     setIsBusy(true);
     try {
+      // Ensure source is set, even if the first render happened before injection.
+      if (source !== 'veworld') setSource('veworld');
       const res = await connect();
       const addr = (res?.account ?? connectedAddress) as string | null;
       if (!addr) throw new Error('wallet_not_connected');
@@ -127,7 +164,7 @@ export default function WalletPage() {
           <button
             type="button"
             onClick={onLogin}
-            disabled={isBusy}
+            disabled={isBusy || !hasVeWorld}
             className="mt-5 w-full rounded-2xl bg-[#F59E0B] py-4 text-sm font-semibold text-black transition active:scale-[0.99] disabled:opacity-60"
           >
             {isBusy ? '登录中...' : '立即登录'}
