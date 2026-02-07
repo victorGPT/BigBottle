@@ -13,7 +13,8 @@ Mobile-first receipt scanning app for bottle recycling incentives.
 ## Repo Layout
 
 - `apps/web`: Vite + React (mobile web dApp)
-- `apps/api`: Fastify API server
+- `supabase/functions/api`: Supabase Edge Function API (recommended for production)
+- `apps/api`: Fastify API server (local dev / reference implementation)
 - `docs/plans`: Single source of truth for product/engineering brief
 - `designs`: Pencil `.pen` design source
 
