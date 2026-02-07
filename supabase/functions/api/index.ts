@@ -542,7 +542,12 @@ async function runDify(config: AppConfig, input: { imageUrl: string; userRef: st
       body: JSON.stringify({
         workflow_id: config.DIFY_WORKFLOW_ID,
         inputs: {
-          [config.DIFY_IMAGE_INPUT_KEY]: input.imageUrl
+          // Dify workflow input is configured as a file input. We pass a remote URL so Dify can fetch it.
+          [config.DIFY_IMAGE_INPUT_KEY]: {
+            type: 'image',
+            transfer_method: 'remote_url',
+            url: input.imageUrl
+          }
         },
         response_mode: 'blocking',
         user: input.userRef
