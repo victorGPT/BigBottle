@@ -39,6 +39,9 @@ supabase functions deploy api --project-ref tbvkyvxdhrmfprcjyvbk
 You must also configure secrets for the function (e.g. `JWT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, AWS and Dify keys)
 before the full flow can work.
 
+Note: this function uses its own JWT (`JWT_SECRET`) and does not rely on Supabase Auth, so JWT verification is disabled
+via `supabase/functions/api/config.toml` (`verify_jwt = false`).
+
 Minimum secrets for auth endpoints:
 
 - `SUPABASE_URL` (example: `https://tbvkyvxdhrmfprcjyvbk.supabase.co`)
