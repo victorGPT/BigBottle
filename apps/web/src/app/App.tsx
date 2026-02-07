@@ -10,14 +10,7 @@ export default function App() {
     <Routes>
       <Route path="/wallet" element={<WalletPage />} />
 
-      <Route
-        path="/"
-        element={
-          <RequireLogin>
-            <DashboardPage />
-          </RequireLogin>
-        }
-      />
+      <Route path="/" element={<DashboardPage />} />
       <Route
         path="/scan"
         element={
@@ -39,4 +32,3 @@ export default function App() {
     </Routes>
   );
 }
-

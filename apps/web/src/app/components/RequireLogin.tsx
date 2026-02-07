@@ -19,9 +19,8 @@ export default function RequireLogin(props: { children: React.ReactNode }) {
   }
 
   if (state.status === 'anonymous') {
-    return <Navigate to="/wallet" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return <>{props.children}</>;
 }
-

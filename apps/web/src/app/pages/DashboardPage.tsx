@@ -14,7 +14,9 @@ type Submission = {
 export default function DashboardPage() {
   const nav = useNavigate();
   const { state, logout } = useAuth();
-  const token = state.status === 'logged_in' ? state.token : null;
+  const isLoading = state.status === 'loading';
+  const isLoggedIn = state.status === 'logged_in';
+  const token = isLoggedIn ? state.token : null;
 
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -50,13 +52,15 @@ export default function DashboardPage() {
   }, [submissions]);
 
   const walletShort =
-    state.status === 'logged_in'
+    isLoggedIn
       ? `${state.user.wallet_address.slice(0, 6)}...${state.user.wallet_address.slice(-4)}`
       : null;
 
   return (
     <Screen>
-      <div className="relative mx-auto min-h-dvh max-w-[420px] px-5 pb-10 pt-10">
+      <div
+        className={`relative mx-auto min-h-dvh max-w-[420px] px-5 pt-10 ${isLoggedIn ? 'pb-10' : 'pb-32'}`}
+      >
         <div className="flex items-start justify-between">
           <div>
             <div className="text-lg font-semibold tracking-tight">BIG BOTTLE</div>
@@ -64,10 +68,15 @@ export default function DashboardPage() {
           </div>
           <button
             type="button"
-            onClick={logout}
+            onClick={() => {
+              if (isLoading) return;
+              if (isLoggedIn) logout();
+              else nav('/wallet');
+            }}
+            disabled={isLoading}
             className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-white/70"
           >
-            {walletShort ?? 'Logout'}
+            {isLoading ? 'Loading' : isLoggedIn ? walletShort : 'Connect Wallet'}
           </button>
         </div>
 
@@ -138,16 +147,30 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => nav('/scan')}
-          className="fixed bottom-8 left-1/2 flex h-16 w-16 -translate-x-1/2 items-center justify-center rounded-full border border-emerald-200/30 bg-emerald-300 text-black shadow-[0_10px_40px_rgba(16,185,129,0.25)] transition active:scale-[0.98]"
-          aria-label="Scan receipt"
-        >
-          <span className="text-xl font-black">⌁</span>
-        </button>
+        {isLoggedIn ? (
+          <button
+            type="button"
+            onClick={() => nav('/scan')}
+            className="fixed bottom-8 left-1/2 flex h-16 w-16 -translate-x-1/2 items-center justify-center rounded-full border border-emerald-200/30 bg-emerald-300 text-black shadow-[0_10px_40px_rgba(16,185,129,0.25)] transition active:scale-[0.98]"
+            aria-label="Scan receipt"
+          >
+            <span className="text-xl font-black">⌁</span>
+          </button>
+        ) : (
+          <div className="fixed inset-x-0 bottom-8">
+            <div className="mx-auto max-w-[420px] px-5">
+              <button
+                type="button"
+                onClick={() => nav('/wallet')}
+                className="w-full rounded-2xl bg-emerald-300 py-4 text-sm font-semibold text-black shadow-[0_10px_40px_rgba(16,185,129,0.18)] transition active:scale-[0.99]"
+              >
+                CONNECT WALLET
+              </button>
+              <div className="mt-2 text-center text-xs text-white/55">登录后才能扫描小票并领取积分</div>
+            </div>
+          </div>
+        )}
       </div>
     </Screen>
   );
 }
-
