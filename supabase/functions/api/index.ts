@@ -57,8 +57,9 @@ function envString(name: string): string | undefined {
 
 function loadConfig(): AppConfig {
   const JWT_SECRET = envString('JWT_SECRET');
-  const SUPABASE_URL = envString('SUPABASE_URL');
-  const SUPABASE_SERVICE_ROLE_KEY = envString('SUPABASE_SERVICE_ROLE_KEY');
+  // Edge Functions reserve `SUPABASE_*` env var names. Use `BB_*` to avoid conflicts.
+  const SUPABASE_URL = envString('BB_SUPABASE_URL');
+  const SUPABASE_SERVICE_ROLE_KEY = envString('BB_SUPABASE_SERVICE_ROLE_KEY');
   const AWS_REGION = envString('AWS_REGION');
   const S3_BUCKET = envString('S3_BUCKET');
   const S3_PRESIGN_EXPIRES_SECONDS = Number(envString('S3_PRESIGN_EXPIRES_SECONDS') ?? '300');

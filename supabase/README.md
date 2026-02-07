@@ -44,8 +44,8 @@ via `supabase/functions/api/config.toml` (`verify_jwt = false`).
 
 Minimum secrets for auth endpoints:
 
-- `SUPABASE_URL` (example: `https://tbvkyvxdhrmfprcjyvbk.supabase.co`)
-- `SUPABASE_SERVICE_ROLE_KEY`
+- `BB_SUPABASE_URL` (example: `https://tbvkyvxdhrmfprcjyvbk.supabase.co`)
+- `BB_SUPABASE_SERVICE_ROLE_KEY`
 - `JWT_SECRET` (min 16 chars)
 
 Additional secrets for upload + verify flow:
