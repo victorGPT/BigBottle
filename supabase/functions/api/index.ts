@@ -11,14 +11,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4?target=deno';
 import { SignJWT, jwtVerify } from 'https://esm.sh/jose@5.2.4?target=deno';
 import { getAddress, verifyTypedData } from 'https://esm.sh/ethers@6.15.0?target=deno';
-import {
-  GetObjectCommand,
-  HeadObjectCommand,
-  PutObjectCommand,
-  S3Client,
-  type PutObjectCommandInput
-} from 'https://esm.sh/@aws-sdk/client-s3@3.883.0?target=deno';
-import { getSignedUrl } from 'https://esm.sh/@aws-sdk/s3-request-presigner@3.883.0?target=deno';
+import { AwsClient } from 'https://esm.sh/aws4fetch@1.0.20?target=deno';
 
 type Json =
   | Record<string, unknown>
@@ -601,67 +594,90 @@ function extractDifyReceiptPayload(raw: unknown): DifyReceiptPayload | null {
 }
 
 // --- S3 ---
-function createS3Client(config: AppConfig): S3Client {
-  return new S3Client({
+function s3ObjectUrl(params: { region: string; bucket: string; key: string }): URL {
+  // Virtual-hosted style URL. Bucket names with dots require path-style,
+  // but our MVP bucket naming convention avoids dots.
+  const host =
+    params.region === 'us-east-1'
+      ? `${params.bucket}.s3.amazonaws.com`
+      : `${params.bucket}.s3.${params.region}.amazonaws.com`;
+  const encodedKey = params.key
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/');
+  return new URL(`https://${host}/${encodedKey}`);
+}
+
+function createS3Client(config: AppConfig): AwsClient {
+  return new AwsClient({
+    service: 's3',
     region: config.AWS_REGION,
-    credentials: {
-      accessKeyId: config.AWS_ACCESS_KEY_ID,
-      secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
-      sessionToken: config.AWS_SESSION_TOKEN
-    }
+    accessKeyId: config.AWS_ACCESS_KEY_ID,
+    secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
+    sessionToken: config.AWS_SESSION_TOKEN
   });
 }
 
 async function presignPutObject(params: {
-  s3: S3Client;
+  s3: AwsClient;
+  region: string;
   bucket: string;
   key: string;
   contentType: string;
   expiresInSeconds: number;
   cacheControl?: string;
 }): Promise<{ url: string; headers: Record<string, string> }> {
-  const input: PutObjectCommandInput = {
-    Bucket: params.bucket,
-    Key: params.key,
-    ContentType: params.contentType,
-    CacheControl: params.cacheControl
-  };
-  const url = await getSignedUrl(params.s3, new PutObjectCommand(input), { expiresIn: params.expiresInSeconds });
-  return { url, headers: { 'Content-Type': params.contentType } };
+  const url = s3ObjectUrl({ region: params.region, bucket: params.bucket, key: params.key });
+  url.searchParams.set('X-Amz-Expires', String(params.expiresInSeconds));
+
+  // For simplicity and compatibility across clients, we do not sign Content-Type.
+  // The caller can still pass it in the upload headers.
+  const signed = await params.s3.sign(url, {
+    method: 'PUT',
+    aws: { signQuery: true }
+  });
+
+  const headers: Record<string, string> = { 'Content-Type': params.contentType };
+  if (params.cacheControl) headers['Cache-Control'] = params.cacheControl;
+  return { url: signed.url, headers };
 }
 
 async function presignGetObject(params: {
-  s3: S3Client;
+  s3: AwsClient;
+  region: string;
   bucket: string;
   key: string;
   expiresInSeconds: number;
 }): Promise<{ url: string }> {
-  const url = await getSignedUrl(
-    params.s3,
-    new GetObjectCommand({ Bucket: params.bucket, Key: params.key }),
-    { expiresIn: params.expiresInSeconds }
-  );
-  return { url };
+  const url = s3ObjectUrl({ region: params.region, bucket: params.bucket, key: params.key });
+  url.searchParams.set('X-Amz-Expires', String(params.expiresInSeconds));
+
+  const signed = await params.s3.sign(url, {
+    method: 'GET',
+    aws: { signQuery: true }
+  });
+  return { url: signed.url };
 }
 
 async function headObject(params: {
-  s3: S3Client;
+  s3: AwsClient;
+  region: string;
   bucket: string;
   key: string;
 }): Promise<{ contentLength: number | null; contentType: string | null; eTag: string | null } | null> {
-  try {
-    const res = await params.s3.send(new HeadObjectCommand({ Bucket: params.bucket, Key: params.key }));
-    return {
-      contentLength: typeof res.ContentLength === 'number' ? res.ContentLength : null,
-      contentType: typeof res.ContentType === 'string' ? res.ContentType : null,
-      eTag: typeof res.ETag === 'string' ? res.ETag : null
-    };
-  } catch (err: any) {
-    const status = err?.$metadata?.httpStatusCode;
-    const name = typeof err?.name === 'string' ? err.name : '';
-    if (status === 404 || name === 'NotFound' || name === 'NoSuchKey') return null;
-    throw err;
-  }
+  const url = s3ObjectUrl({ region: params.region, bucket: params.bucket, key: params.key });
+  const res = await params.s3.fetch(url, { method: 'HEAD' });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`S3 head failed: ${res.status} ${res.statusText}`);
+
+  const contentLengthRaw = res.headers.get('content-length');
+  const contentLength = contentLengthRaw ? Number.parseInt(contentLengthRaw, 10) : NaN;
+
+  return {
+    contentLength: Number.isFinite(contentLength) ? contentLength : null,
+    contentType: res.headers.get('content-type'),
+    eTag: res.headers.get('etag')
+  };
 }
 
 const handleRequest: (config: AppConfig) => HttpHandler =
@@ -685,8 +701,8 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       return repo;
     };
 
-    let s3: S3Client | null = null;
-    const getS3 = (): S3Client => {
+    let s3: AwsClient | null = null;
+    const getS3 = (): AwsClient => {
       if (!s3) s3 = createS3Client(config);
       return s3;
     };
@@ -792,6 +808,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
           const existingContentType = (existing.image_content_type || 'application/octet-stream').toLowerCase();
           const upload = await presignPutObject({
             s3,
+            region: config.AWS_REGION,
             bucket: existing.image_bucket,
             key: existing.image_key,
             contentType: existingContentType,
@@ -842,6 +859,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
           if (again.status === 'pending_upload') {
             const upload = await presignPutObject({
               s3,
+              region: config.AWS_REGION,
               bucket: again.image_bucket,
               key: again.image_key,
               contentType: (again.image_content_type || contentType).toLowerCase(),
@@ -856,6 +874,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
 
       const upload = await presignPutObject({
         s3,
+        region: config.AWS_REGION,
         bucket: created.image_bucket,
         key: created.image_key,
         contentType: (created.image_content_type || contentType).toLowerCase(),
@@ -879,7 +898,12 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       if (!submission || submission.user_id !== authed.sub) return errorResponse(config, req, 404, 'not_found');
 
       if (submission.status === 'pending_upload') {
-        const meta = await headObject({ s3, bucket: submission.image_bucket, key: submission.image_key });
+        const meta = await headObject({
+          s3,
+          region: config.AWS_REGION,
+          bucket: submission.image_bucket,
+          key: submission.image_key
+        });
         if (!meta) return errorResponse(config, req, 409, 'upload_not_found');
 
         const updated =
@@ -922,7 +946,12 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       }
 
       try {
-        const meta = await headObject({ s3, bucket: claimed.image_bucket, key: claimed.image_key });
+        const meta = await headObject({
+          s3,
+          region: config.AWS_REGION,
+          bucket: claimed.image_bucket,
+          key: claimed.image_key
+        });
         if (!meta) {
           const reset = await repo.updateSubmission(claimed.id, { status: 'pending_upload' });
           return jsonResponse(config, req, 409, { error: 'upload_incomplete', submission: reset });
@@ -930,6 +959,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
 
         const getUrl = await presignGetObject({
           s3,
+          region: config.AWS_REGION,
           bucket: claimed.image_bucket,
           key: claimed.image_key,
           expiresInSeconds: Math.max(60, config.S3_PRESIGN_EXPIRES_SECONDS)
