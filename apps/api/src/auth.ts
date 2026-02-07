@@ -2,8 +2,7 @@ import { getAddress, verifyTypedData } from 'ethers';
 
 export const LOGIN_DOMAIN = Object.freeze({
   name: 'BigBottle',
-  version: '1',
-  chainId: 1
+  version: '1'
 });
 
 export const LOGIN_TYPES = Object.freeze({
@@ -51,4 +50,3 @@ export function verifyLoginSignature(params: {
   );
   return getAddress(recovered) === wallet;
 }
-

@@ -330,8 +330,7 @@ function createRepo(supabase: SupabaseClient) {
 
 const LOGIN_DOMAIN = Object.freeze({
   name: 'BigBottle',
-  version: '1',
-  chainId: 1
+  version: '1'
 });
 
 const LOGIN_TYPES = Object.freeze({
