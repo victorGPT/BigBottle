@@ -44,3 +44,13 @@ Minimum secrets for auth endpoints:
 - `SUPABASE_URL` (example: `https://tbvkyvxdhrmfprcjyvbk.supabase.co`)
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `JWT_SECRET` (min 16 chars)
+
+Additional secrets for upload + verify flow:
+
+- `AWS_REGION` (example: `ap-northeast-1`)
+- `S3_BUCKET` (example: `bvefuturebigbottle2`)
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_SESSION_TOKEN` (optional)
+- `DIFY_MODE` (`mock` or `workflow`, default is `mock`)
+- `DIFY_API_URL` / `DIFY_API_KEY` / `DIFY_WORKFLOW_ID` (required when `DIFY_MODE=workflow`)

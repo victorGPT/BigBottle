@@ -11,6 +11,14 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4?target=deno';
 import { SignJWT, jwtVerify } from 'https://esm.sh/jose@5.2.4?target=deno';
 import { getAddress, verifyTypedData } from 'https://esm.sh/ethers@6.15.0?target=deno';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+  type PutObjectCommandInput
+} from 'https://esm.sh/@aws-sdk/client-s3@3.883.0?target=deno';
+import { getSignedUrl } from 'https://esm.sh/@aws-sdk/s3-request-presigner@3.883.0?target=deno';
 
 type Json =
   | Record<string, unknown>
@@ -27,6 +35,18 @@ type AppConfig = {
   JWT_SECRET: string;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  AWS_REGION: string;
+  S3_BUCKET: string;
+  S3_PRESIGN_EXPIRES_SECONDS: number;
+  AWS_ACCESS_KEY_ID: string;
+  AWS_SECRET_ACCESS_KEY: string;
+  AWS_SESSION_TOKEN?: string;
+  DIFY_MODE: 'mock' | 'workflow';
+  DIFY_API_URL?: string;
+  DIFY_API_KEY?: string;
+  DIFY_WORKFLOW_ID?: string;
+  DIFY_IMAGE_INPUT_KEY: string;
+  DIFY_TIMEOUT_MS: number;
 };
 
 function envString(name: string): string | undefined {
@@ -39,11 +59,39 @@ function loadConfig(): AppConfig {
   const JWT_SECRET = envString('JWT_SECRET');
   const SUPABASE_URL = envString('SUPABASE_URL');
   const SUPABASE_SERVICE_ROLE_KEY = envString('SUPABASE_SERVICE_ROLE_KEY');
+  const AWS_REGION = envString('AWS_REGION');
+  const S3_BUCKET = envString('S3_BUCKET');
+  const S3_PRESIGN_EXPIRES_SECONDS = Number(envString('S3_PRESIGN_EXPIRES_SECONDS') ?? '300');
+
+  const DIFY_MODE_RAW = (envString('DIFY_MODE') ?? 'mock').toLowerCase();
+  const DIFY_MODE: 'mock' | 'workflow' = DIFY_MODE_RAW === 'workflow' ? 'workflow' : 'mock';
+  const DIFY_API_URL = envString('DIFY_API_URL');
+  const DIFY_API_KEY = envString('DIFY_API_KEY');
+  const DIFY_WORKFLOW_ID = envString('DIFY_WORKFLOW_ID');
+  const DIFY_IMAGE_INPUT_KEY = envString('DIFY_IMAGE_INPUT_KEY') ?? 'image_url';
+  const DIFY_TIMEOUT_MS = Number(envString('DIFY_TIMEOUT_MS') ?? '20000');
 
   const missing: string[] = [];
   if (!JWT_SECRET) missing.push('JWT_SECRET');
   if (!SUPABASE_URL) missing.push('SUPABASE_URL');
   if (!SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!AWS_REGION) missing.push('AWS_REGION');
+  if (!S3_BUCKET) missing.push('S3_BUCKET');
+  const AWS_ACCESS_KEY_ID = envString('AWS_ACCESS_KEY_ID');
+  const AWS_SECRET_ACCESS_KEY = envString('AWS_SECRET_ACCESS_KEY');
+  if (!AWS_ACCESS_KEY_ID) missing.push('AWS_ACCESS_KEY_ID');
+  if (!AWS_SECRET_ACCESS_KEY) missing.push('AWS_SECRET_ACCESS_KEY');
+  if (!Number.isFinite(S3_PRESIGN_EXPIRES_SECONDS) || S3_PRESIGN_EXPIRES_SECONDS <= 0) {
+    missing.push('S3_PRESIGN_EXPIRES_SECONDS');
+  }
+  if (!Number.isFinite(DIFY_TIMEOUT_MS) || DIFY_TIMEOUT_MS <= 0) {
+    missing.push('DIFY_TIMEOUT_MS');
+  }
+  if (DIFY_MODE === 'workflow') {
+    if (!DIFY_API_URL) missing.push('DIFY_API_URL');
+    if (!DIFY_API_KEY) missing.push('DIFY_API_KEY');
+    if (!DIFY_WORKFLOW_ID) missing.push('DIFY_WORKFLOW_ID');
+  }
   if (missing.length) {
     throw new Error(`Missing required env vars: ${missing.join(', ')}`);
   }
@@ -52,7 +100,19 @@ function loadConfig(): AppConfig {
     CORS_ORIGIN: envString('CORS_ORIGIN') ?? '*',
     JWT_SECRET,
     SUPABASE_URL,
-    SUPABASE_SERVICE_ROLE_KEY
+    SUPABASE_SERVICE_ROLE_KEY,
+    AWS_REGION,
+    S3_BUCKET,
+    S3_PRESIGN_EXPIRES_SECONDS,
+    AWS_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY,
+    AWS_SESSION_TOKEN: envString('AWS_SESSION_TOKEN'),
+    DIFY_MODE,
+    DIFY_API_URL,
+    DIFY_API_KEY,
+    DIFY_WORKFLOW_ID,
+    DIFY_IMAGE_INPUT_KEY,
+    DIFY_TIMEOUT_MS
   };
 }
 
@@ -133,6 +193,25 @@ type DbAuthChallenge = {
   created_at: string;
 };
 
+type DbReceiptSubmission = {
+  id: string;
+  user_id: string;
+  client_submission_id: string;
+  status: string;
+  image_bucket: string;
+  image_key: string;
+  image_content_type: string | null;
+  dify_raw: unknown | null;
+  dify_drink_list: unknown | null;
+  receipt_time_raw: string | null;
+  retinfo_is_availd: string | null;
+  time_threshold: string | null;
+  points_total: number;
+  verified_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 function ensureOk<T>(res: { data: T; error: unknown | null }, message: string): T {
   if (res.error) {
     const errText = typeof res.error === 'object' ? JSON.stringify(res.error) : String(res.error);
@@ -188,6 +267,69 @@ function createRepo(supabase: SupabaseClient) {
         .maybeSingle();
       const data = ensureOk(res, 'Failed to mark auth challenge used');
       return data !== null;
+    },
+
+    async getSubmissionById(id: string): Promise<DbReceiptSubmission | null> {
+      const res = await supabase.from('receipt_submissions').select('*').eq('id', id).maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch submission');
+      return (data as DbReceiptSubmission) ?? null;
+    },
+
+    async getSubmissionByClientId(input: {
+      user_id: string;
+      client_submission_id: string;
+    }): Promise<DbReceiptSubmission | null> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .select('*')
+        .eq('user_id', input.user_id)
+        .eq('client_submission_id', input.client_submission_id)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch submission by client id');
+      return (data as DbReceiptSubmission) ?? null;
+    },
+
+    async createSubmission(input: {
+      id: string;
+      user_id: string;
+      client_submission_id: string;
+      status: string;
+      image_bucket: string;
+      image_key: string;
+      image_content_type: string | null;
+    }): Promise<DbReceiptSubmission> {
+      const res = await supabase.from('receipt_submissions').insert(input).select('*').single();
+      return ensureOk(res, 'Failed to create submission') as DbReceiptSubmission;
+    },
+
+    async updateSubmission(
+      id: string,
+      patch: Partial<Omit<DbReceiptSubmission, 'id' | 'user_id' | 'created_at'>>
+    ): Promise<DbReceiptSubmission> {
+      const res = await supabase.from('receipt_submissions').update(patch).eq('id', id).select('*').single();
+      return ensureOk(res, 'Failed to update submission') as DbReceiptSubmission;
+    },
+
+    async updateSubmissionStatusIfCurrent(input: { id: string; from: string; to: string }): Promise<DbReceiptSubmission | null> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .update({ status: input.to })
+        .eq('id', input.id)
+        .eq('status', input.from)
+        .select('*')
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to update submission status');
+      return (data as DbReceiptSubmission) ?? null;
+    },
+
+    async listSubmissions(userId: string, limit = 20): Promise<DbReceiptSubmission[]> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      return ensureOk(res, 'Failed to list submissions') as DbReceiptSubmission[];
     }
   };
 }
@@ -286,6 +428,241 @@ async function requireAuth(config: AppConfig, req: Request): Promise<AuthedUser 
   return await verifyAccessToken(config, m[1] ?? '');
 }
 
+function normalizeBoolString(input: string): string {
+  return input.trim().toLowerCase();
+}
+
+const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  // Some browsers (or file sources) omit the MIME type; our web client falls back to octet-stream.
+  'application/octet-stream'
+]);
+
+// --- Scoring ---
+type DifyDrinkItem = {
+  retinfoDrinkCapacity?: unknown;
+  retinfoDrinkAmount?: unknown;
+};
+
+const MAX_ITEMS = 25;
+const MAX_AMOUNT = 20;
+const MAX_TOTAL_POINTS = 500;
+
+function clampInt(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
+function parseCapacityMl(input: unknown): number | null {
+  if (typeof input === 'number' && Number.isFinite(input)) {
+    const v = Math.floor(input);
+    return v > 0 ? v : null;
+  }
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    const n = Number.parseInt(trimmed, 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  return null;
+}
+
+function parseAmount(input: unknown): number {
+  if (typeof input === 'number' && Number.isFinite(input)) {
+    const v = Math.floor(input);
+    return clampInt(v, 1, MAX_AMOUNT);
+  }
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (!trimmed) return 1;
+    const n = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(n)) return 1;
+    return clampInt(n, 1, MAX_AMOUNT);
+  }
+  return 1;
+}
+
+function pointsForCapacityMl(capacityMl: number | null): number {
+  if (capacityMl === null) return 0;
+  if (capacityMl < 500) return 0;
+  if (capacityMl < 1000) return 2;
+  if (capacityMl < 2000) return 10;
+  return 15;
+}
+
+function computeTotalPoints(drinkList: unknown): { totalPoints: number } {
+  const list = Array.isArray(drinkList) ? (drinkList as DifyDrinkItem[]).slice(0, MAX_ITEMS) : [];
+  const uncapped = list.reduce((sum, item) => {
+    const capacityMl = parseCapacityMl(item.retinfoDrinkCapacity);
+    const amount = parseAmount(item.retinfoDrinkAmount);
+    const tierPoints = pointsForCapacityMl(capacityMl);
+    return sum + tierPoints * amount;
+  }, 0);
+  return { totalPoints: Math.min(uncapped, MAX_TOTAL_POINTS) };
+}
+
+// --- Dify ---
+type DifyReceiptPayload = {
+  drinkList?: unknown;
+  retinfoIsAvaild?: unknown;
+  retinfoReceiptTime?: unknown;
+  timeThreshold?: unknown;
+  user_id?: unknown;
+};
+
+async function runDify(config: AppConfig, input: { imageUrl: string; userRef: string }) {
+  if (config.DIFY_MODE === 'mock') {
+    return {
+      drinkList: [
+        {
+          retinfoDrinkName: 'MOCK_WATER',
+          retinfoDrinkCapacity: 500,
+          retinfoDrinkAmount: 1
+        }
+      ],
+      retinfoIsAvaild: 'true',
+      retinfoReceiptTime: '2026-02-04 08:52:00',
+      timeThreshold: 'false',
+      user_id: input.userRef
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.DIFY_TIMEOUT_MS);
+
+  const url = new URL('/v1/workflows/run', config.DIFY_API_URL);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${config.DIFY_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        workflow_id: config.DIFY_WORKFLOW_ID,
+        inputs: {
+          [config.DIFY_IMAGE_INPUT_KEY]: input.imageUrl
+        },
+        response_mode: 'blocking',
+        user: input.userRef
+      })
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Dify request failed: ${res.status} ${res.statusText} ${text}`);
+  }
+  return res.json();
+}
+
+function extractDifyReceiptPayload(raw: unknown): DifyReceiptPayload | null {
+  const candidates: unknown[] = [];
+
+  if (typeof raw === 'string') {
+    try {
+      candidates.push(JSON.parse(raw));
+    } catch {
+      // ignore
+    }
+  }
+  candidates.push(raw);
+
+  for (const c of candidates) {
+    if (!isRecord(c)) continue;
+
+    const direct = c as Record<string, unknown>;
+    if ('drinkList' in direct || 'retinfoIsAvaild' in direct || 'timeThreshold' in direct) {
+      return direct as DifyReceiptPayload;
+    }
+
+    const data = direct.data;
+    if (isRecord(data)) {
+      const outputs = (data as Record<string, unknown>).outputs;
+      if (isRecord(outputs)) return outputs as DifyReceiptPayload;
+    }
+
+    const outputs = direct.outputs;
+    if (isRecord(outputs)) return outputs as DifyReceiptPayload;
+  }
+
+  return null;
+}
+
+// --- S3 ---
+function createS3Client(config: AppConfig): S3Client {
+  return new S3Client({
+    region: config.AWS_REGION,
+    credentials: {
+      accessKeyId: config.AWS_ACCESS_KEY_ID,
+      secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
+      sessionToken: config.AWS_SESSION_TOKEN
+    }
+  });
+}
+
+async function presignPutObject(params: {
+  s3: S3Client;
+  bucket: string;
+  key: string;
+  contentType: string;
+  expiresInSeconds: number;
+  cacheControl?: string;
+}): Promise<{ url: string; headers: Record<string, string> }> {
+  const input: PutObjectCommandInput = {
+    Bucket: params.bucket,
+    Key: params.key,
+    ContentType: params.contentType,
+    CacheControl: params.cacheControl
+  };
+  const url = await getSignedUrl(params.s3, new PutObjectCommand(input), { expiresIn: params.expiresInSeconds });
+  return { url, headers: { 'Content-Type': params.contentType } };
+}
+
+async function presignGetObject(params: {
+  s3: S3Client;
+  bucket: string;
+  key: string;
+  expiresInSeconds: number;
+}): Promise<{ url: string }> {
+  const url = await getSignedUrl(
+    params.s3,
+    new GetObjectCommand({ Bucket: params.bucket, Key: params.key }),
+    { expiresIn: params.expiresInSeconds }
+  );
+  return { url };
+}
+
+async function headObject(params: {
+  s3: S3Client;
+  bucket: string;
+  key: string;
+}): Promise<{ contentLength: number | null; contentType: string | null; eTag: string | null } | null> {
+  try {
+    const res = await params.s3.send(new HeadObjectCommand({ Bucket: params.bucket, Key: params.key }));
+    return {
+      contentLength: typeof res.ContentLength === 'number' ? res.ContentLength : null,
+      contentType: typeof res.ContentType === 'string' ? res.ContentType : null,
+      eTag: typeof res.ETag === 'string' ? res.ETag : null
+    };
+  } catch (err: any) {
+    const status = err?.$metadata?.httpStatusCode;
+    const name = typeof err?.name === 'string' ? err.name : '';
+    if (status === 404 || name === 'NotFound' || name === 'NoSuchKey') return null;
+    throw err;
+  }
+}
+
 const handleRequest: (config: AppConfig) => HttpHandler =
   (config) => async (req, ctx) => {
     if (req.method === 'OPTIONS') {
@@ -298,6 +675,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
 
     const supabase = createSupabaseAdmin(config);
     const repo = createRepo(supabase);
+    const s3 = createS3Client(config);
 
     // --- Auth ---
     if (req.method === 'POST' && ctx.routePath === '/auth/challenge') {
@@ -375,6 +753,249 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       }
 
       return jsonResponse(config, req, 200, { user });
+    }
+
+    // --- Submissions ---
+    if (req.method === 'POST' && ctx.routePath === '/submissions/init') {
+      const authed = await requireAuth(config, req);
+      if (!authed) return errorResponse(config, req, 401, 'unauthorized');
+
+      const body = await readJson(req);
+      if (!isRecord(body)) return errorResponse(config, req, 400, 'invalid_body');
+      const clientSubmissionId = parseUuid(body.client_submission_id);
+      const contentTypeRaw = typeof body.content_type === 'string' ? body.content_type : '';
+      if (!clientSubmissionId || !contentTypeRaw) return errorResponse(config, req, 400, 'invalid_body');
+
+      const existing = await repo.getSubmissionByClientId({
+        user_id: authed.sub,
+        client_submission_id: clientSubmissionId
+      });
+      if (existing) {
+        if (existing.status === 'pending_upload') {
+          const existingContentType = (existing.image_content_type || 'application/octet-stream').toLowerCase();
+          const upload = await presignPutObject({
+            s3,
+            bucket: existing.image_bucket,
+            key: existing.image_key,
+            contentType: existingContentType,
+            expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
+          });
+          return jsonResponse(config, req, 200, { submission: existing, upload: { method: 'PUT', ...upload } });
+        }
+        return jsonResponse(config, req, 200, { submission: existing, upload: null });
+      }
+
+      const contentType = (contentTypeRaw.split(';')[0]?.trim().toLowerCase() ?? '');
+      if (!ALLOWED_UPLOAD_CONTENT_TYPES.has(contentType)) {
+        return errorResponse(config, req, 400, 'unsupported_content_type');
+      }
+
+      const ext =
+        contentType === 'image/png'
+          ? 'png'
+          : contentType === 'image/jpeg'
+            ? 'jpg'
+            : contentType === 'image/webp'
+              ? 'webp'
+              : contentType === 'image/heic' || contentType === 'image/heif'
+                ? 'heic'
+                : 'bin';
+
+      const submissionId = crypto.randomUUID();
+      const imageKey = `receipts/${authed.sub}/${clientSubmissionId}.${ext}`;
+
+      let created: DbReceiptSubmission;
+      try {
+        created = await repo.createSubmission({
+          id: submissionId,
+          user_id: authed.sub,
+          client_submission_id: clientSubmissionId,
+          status: 'pending_upload',
+          image_bucket: config.S3_BUCKET,
+          image_key: imageKey,
+          image_content_type: contentType
+        });
+      } catch (err) {
+        console.warn('create_submission_failed', err);
+        const again = await repo.getSubmissionByClientId({
+          user_id: authed.sub,
+          client_submission_id: clientSubmissionId
+        });
+        if (again) {
+          if (again.status === 'pending_upload') {
+            const upload = await presignPutObject({
+              s3,
+              bucket: again.image_bucket,
+              key: again.image_key,
+              contentType: (again.image_content_type || contentType).toLowerCase(),
+              expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
+            });
+            return jsonResponse(config, req, 200, { submission: again, upload: { method: 'PUT', ...upload } });
+          }
+          return jsonResponse(config, req, 200, { submission: again, upload: null });
+        }
+        throw err;
+      }
+
+      const upload = await presignPutObject({
+        s3,
+        bucket: created.image_bucket,
+        key: created.image_key,
+        contentType: (created.image_content_type || contentType).toLowerCase(),
+        expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
+      });
+
+      return jsonResponse(config, req, 200, { submission: created, upload: { method: 'PUT', ...upload } });
+    }
+
+    const completeMatch = ctx.routePath.match(/^\/submissions\/([^/]+)\/complete$/);
+    if (req.method === 'POST' && completeMatch) {
+      const authed = await requireAuth(config, req);
+      if (!authed) return errorResponse(config, req, 401, 'unauthorized');
+      const submissionId = parseUuid(completeMatch[1]);
+      if (!submissionId) return errorResponse(config, req, 400, 'invalid_params');
+
+      const submission = await repo.getSubmissionById(submissionId);
+      if (!submission || submission.user_id !== authed.sub) return errorResponse(config, req, 404, 'not_found');
+
+      if (submission.status === 'pending_upload') {
+        const meta = await headObject({ s3, bucket: submission.image_bucket, key: submission.image_key });
+        if (!meta) return errorResponse(config, req, 409, 'upload_not_found');
+
+        const updated =
+          (await repo.updateSubmissionStatusIfCurrent({ id: submission.id, from: 'pending_upload', to: 'uploaded' })) ??
+          submission;
+        return jsonResponse(config, req, 200, { submission: updated });
+      }
+
+      return jsonResponse(config, req, 200, { submission });
+    }
+
+    const verifyMatch = ctx.routePath.match(/^\/submissions\/([^/]+)\/verify$/);
+    if (req.method === 'POST' && verifyMatch) {
+      const authed = await requireAuth(config, req);
+      if (!authed) return errorResponse(config, req, 401, 'unauthorized');
+      const submissionId = parseUuid(verifyMatch[1]);
+      if (!submissionId) return errorResponse(config, req, 400, 'invalid_params');
+
+      const submission = await repo.getSubmissionById(submissionId);
+      if (!submission || submission.user_id !== authed.sub) return errorResponse(config, req, 404, 'not_found');
+
+      if (['verified', 'rejected', 'not_claimable'].includes(submission.status)) {
+        return jsonResponse(config, req, 200, { submission });
+      }
+      if (submission.status === 'pending_upload') {
+        return errorResponse(config, req, 409, 'upload_incomplete');
+      }
+      if (submission.status === 'verifying') {
+        return jsonResponse(config, req, 200, { submission });
+      }
+
+      const claimed = await repo.updateSubmissionStatusIfCurrent({ id: submission.id, from: 'uploaded', to: 'verifying' });
+      if (!claimed) {
+        const fresh = await repo.getSubmissionById(submission.id);
+        if (!fresh || fresh.user_id !== authed.sub) return errorResponse(config, req, 404, 'not_found');
+        return jsonResponse(config, req, 200, { submission: fresh });
+      }
+
+      try {
+        const meta = await headObject({ s3, bucket: claimed.image_bucket, key: claimed.image_key });
+        if (!meta) {
+          const reset = await repo.updateSubmission(claimed.id, { status: 'pending_upload' });
+          return jsonResponse(config, req, 409, { error: 'upload_incomplete', submission: reset });
+        }
+
+        const getUrl = await presignGetObject({
+          s3,
+          bucket: claimed.image_bucket,
+          key: claimed.image_key,
+          expiresInSeconds: Math.max(60, config.S3_PRESIGN_EXPIRES_SECONDS)
+        });
+
+        const difyRaw = await runDify(config, { imageUrl: getUrl.url, userRef: authed.wallet });
+        const payload = extractDifyReceiptPayload(difyRaw);
+
+        if (!payload) {
+          const updated = await repo.updateSubmission(claimed.id, {
+            status: 'rejected',
+            dify_raw: difyRaw as any,
+            points_total: 0,
+            verified_at: new Date().toISOString()
+          });
+          return jsonResponse(config, req, 200, { submission: updated });
+        }
+
+        if (typeof payload.user_id === 'string') {
+          const difyUser = payload.user_id.trim();
+          if (difyUser && difyUser !== authed.wallet) {
+            console.warn('dify_user_id_mismatch_ignored', { difyUser, wallet: authed.wallet });
+          }
+        }
+
+        const nowIso = new Date().toISOString();
+        const retinfoIsAvaildRaw =
+          typeof payload.retinfoIsAvaild === 'string' ? payload.retinfoIsAvaild : String(payload.retinfoIsAvaild ?? '');
+        const timeThresholdRaw =
+          typeof payload.timeThreshold === 'string' ? payload.timeThreshold : String(payload.timeThreshold ?? '');
+        const receiptTimeRaw =
+          typeof payload.retinfoReceiptTime === 'string'
+            ? payload.retinfoReceiptTime
+            : payload.retinfoReceiptTime == null
+              ? null
+              : String(payload.retinfoReceiptTime);
+
+        const retinfoIsAvaild = normalizeBoolString(retinfoIsAvaildRaw);
+        const timeThreshold = normalizeBoolString(timeThresholdRaw);
+
+        const ok = retinfoIsAvaild === 'true' && timeThreshold === 'false';
+        const { totalPoints } = computeTotalPoints(payload.drinkList);
+        const finalStatus = ok ? (totalPoints > 0 ? 'verified' : 'not_claimable') : 'rejected';
+
+        const updated = await repo.updateSubmission(claimed.id, {
+          status: finalStatus,
+          dify_raw: difyRaw as any,
+          dify_drink_list: (payload.drinkList ?? null) as any,
+          receipt_time_raw: receiptTimeRaw,
+          retinfo_is_availd: retinfoIsAvaild,
+          time_threshold: timeThreshold,
+          points_total: ok ? totalPoints : 0,
+          verified_at: nowIso
+        });
+
+        return jsonResponse(config, req, 200, { submission: updated });
+      } catch (err) {
+        console.error('verification_failed', err);
+        const updated = await repo.updateSubmission(claimed.id, {
+          status: 'rejected',
+          dify_raw: {
+            error: 'verification_failed',
+            message: err instanceof Error ? err.message : String(err),
+            at: new Date().toISOString()
+          } as any,
+          points_total: 0,
+          verified_at: new Date().toISOString()
+        });
+        return jsonResponse(config, req, 200, { submission: updated });
+      }
+    }
+
+    if (req.method === 'GET' && ctx.routePath === '/submissions') {
+      const authed = await requireAuth(config, req);
+      if (!authed) return errorResponse(config, req, 401, 'unauthorized');
+      const rows = await repo.listSubmissions(authed.sub, 50);
+      return jsonResponse(config, req, 200, { submissions: rows });
+    }
+
+    const getMatch = ctx.routePath.match(/^\/submissions\/([^/]+)$/);
+    if (req.method === 'GET' && getMatch) {
+      const authed = await requireAuth(config, req);
+      if (!authed) return errorResponse(config, req, 401, 'unauthorized');
+      const submissionId = parseUuid(getMatch[1]);
+      if (!submissionId) return errorResponse(config, req, 400, 'invalid_params');
+
+      const submission = await repo.getSubmissionById(submissionId);
+      if (!submission || submission.user_id !== authed.sub) return errorResponse(config, req, 404, 'not_found');
+      return jsonResponse(config, req, 200, { submission });
     }
 
     return errorResponse(config, req, 404, 'not_found');
