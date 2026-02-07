@@ -679,6 +679,14 @@ async function headObject(params: {
   };
 }
 
+async function deleteObject(params: { s3: AwsClient; region: string; bucket: string; key: string }): Promise<void> {
+  const url = s3ObjectUrl({ region: params.region, bucket: params.bucket, key: params.key });
+  const res = await params.s3.fetch(url, { method: 'DELETE' });
+  // DeleteObject is idempotent, but we still treat 404 as success for robustness.
+  if (res.status === 404) return;
+  if (!res.ok) throw new Error(`S3 delete failed: ${res.status} ${res.statusText}`);
+}
+
 const handleRequest: (config: AppConfig) => HttpHandler =
   (config) => async (req, ctx) => {
     if (req.method === 'OPTIONS') {
@@ -974,6 +982,20 @@ const handleRequest: (config: AppConfig) => HttpHandler =
             points_total: 0,
             verified_at: new Date().toISOString()
           });
+          try {
+            await deleteObject({
+              s3,
+              region: config.AWS_REGION,
+              bucket: claimed.image_bucket,
+              key: claimed.image_key
+            });
+          } catch (deleteErr) {
+            console.warn('s3_delete_rejected_image_failed', {
+              bucket: claimed.image_bucket,
+              key: claimed.image_key,
+              message: deleteErr instanceof Error ? deleteErr.message : String(deleteErr)
+            });
+          }
           return jsonResponse(config, req, 200, { submission: updated });
         }
 
@@ -1014,6 +1036,22 @@ const handleRequest: (config: AppConfig) => HttpHandler =
           verified_at: nowIso
         });
 
+        if (updated.status === 'rejected') {
+          try {
+            await deleteObject({
+              s3,
+              region: config.AWS_REGION,
+              bucket: claimed.image_bucket,
+              key: claimed.image_key
+            });
+          } catch (deleteErr) {
+            console.warn('s3_delete_rejected_image_failed', {
+              bucket: claimed.image_bucket,
+              key: claimed.image_key,
+              message: deleteErr instanceof Error ? deleteErr.message : String(deleteErr)
+            });
+          }
+        }
         return jsonResponse(config, req, 200, { submission: updated });
       } catch (err) {
         console.error('verification_failed', err);
@@ -1027,6 +1065,20 @@ const handleRequest: (config: AppConfig) => HttpHandler =
           points_total: 0,
           verified_at: new Date().toISOString()
         });
+        try {
+          await deleteObject({
+            s3,
+            region: config.AWS_REGION,
+            bucket: claimed.image_bucket,
+            key: claimed.image_key
+          });
+        } catch (deleteErr) {
+          console.warn('s3_delete_rejected_image_failed', {
+            bucket: claimed.image_bucket,
+            key: claimed.image_key,
+            message: deleteErr instanceof Error ? deleteErr.message : String(deleteErr)
+          });
+        }
         return jsonResponse(config, req, 200, { submission: updated });
       }
     }

@@ -163,6 +163,7 @@ Constraints:
 - All write endpoints require authentication.
 - All submission reads must be scoped to the authenticated user.
 - S3 presign should restrict upload size and content type when possible.
+- Storage policy: when a submission is finalized as `rejected`, the backend deletes the receipt image object from S3 (best-effort).
 
 ## Verification Plan (Engineering)
 

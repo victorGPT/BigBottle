@@ -1,4 +1,5 @@
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -76,6 +77,23 @@ export async function headObject(params: {
     const name = typeof err?.name === 'string' ? err.name : '';
     // AWS SDK v3 uses different error shapes depending on runtime; we treat 404/NotFound as "missing".
     if (status === 404 || name === 'NotFound' || name === 'NoSuchKey') return null;
+    throw err;
+  }
+}
+
+export async function deleteObject(params: { s3: S3Client; bucket: string; key: string }): Promise<void> {
+  try {
+    await params.s3.send(
+      new DeleteObjectCommand({
+        Bucket: params.bucket,
+        Key: params.key
+      })
+    );
+  } catch (err: any) {
+    const status = err?.$metadata?.httpStatusCode;
+    const name = typeof err?.name === 'string' ? err.name : '';
+    // S3 DeleteObject is idempotent, but we still treat NotFound as success for robustness.
+    if (status === 404 || name === 'NotFound' || name === 'NoSuchKey') return;
     throw err;
   }
 }

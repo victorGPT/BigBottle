@@ -11,7 +11,7 @@ import { loadConfig } from './config.js';
 import { buildLoginTypedData, verifyLoginSignature } from './auth.js';
 import { createRepo, createSupabaseAdmin } from './supabase.js';
 import { computeTotalPoints } from './scoring.js';
-import { createS3Client, headObject, presignGetObject, presignPutObject } from './s3.js';
+import { createS3Client, deleteObject, headObject, presignGetObject, presignPutObject } from './s3.js';
 import { extractDifyReceiptPayload, runDify } from './dify.js';
 
 type AuthedRequest = {
@@ -352,6 +352,14 @@ async function main() {
           points_total: 0,
           verified_at: new Date().toISOString()
         });
+        try {
+          await deleteObject({ s3, bucket: updated.image_bucket, key: updated.image_key });
+        } catch (err) {
+          request.log.warn(
+            { err, bucket: updated.image_bucket, key: updated.image_key },
+            's3_delete_rejected_image_failed'
+          );
+        }
         return reply.send({ submission: updated });
       }
 
@@ -397,6 +405,16 @@ async function main() {
         verified_at: nowIso
       });
 
+      if (updated.status === 'rejected') {
+        try {
+          await deleteObject({ s3, bucket: updated.image_bucket, key: updated.image_key });
+        } catch (err) {
+          request.log.warn(
+            { err, bucket: updated.image_bucket, key: updated.image_key },
+            's3_delete_rejected_image_failed'
+          );
+        }
+      }
       return reply.send({ submission: updated });
     } catch (err) {
       request.log.error({ err }, 'verification_failed');
@@ -410,6 +428,14 @@ async function main() {
         points_total: 0,
         verified_at: new Date().toISOString()
       });
+      try {
+        await deleteObject({ s3, bucket: updated.image_bucket, key: updated.image_key });
+      } catch (deleteErr) {
+        request.log.warn(
+          { err: deleteErr, bucket: updated.image_bucket, key: updated.image_key },
+          's3_delete_rejected_image_failed'
+        );
+      }
       return reply.send({ submission: updated });
     }
   });
