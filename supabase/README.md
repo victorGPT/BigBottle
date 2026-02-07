@@ -57,3 +57,4 @@ Additional secrets for upload + verify flow:
 - `AWS_SESSION_TOKEN` (optional)
 - `DIFY_MODE` (`mock` or `workflow`, default is `mock`)
 - `DIFY_API_URL` / `DIFY_API_KEY` / `DIFY_WORKFLOW_ID` (required when `DIFY_MODE=workflow`)
+- `DIFY_IMAGE_INPUT_KEY` should match a **file** input variable in the workflow (the API passes a `remote_url` image payload)
