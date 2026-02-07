@@ -25,7 +25,7 @@ type VerifyResponse = {
 export default function WalletPage() {
   const nav = useNavigate();
   const { state, setToken } = useAuth();
-  const { connect, setSource, account, signer, source } = useWallet();
+  const { connect, setSource, account, source, requestTypedData } = useWallet();
 
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,13 +85,17 @@ export default function WalletPage() {
       const res = await connect();
       const addr = (res?.account ?? connectedAddress) as string | null;
       if (!addr) throw new Error('wallet_not_connected');
-      if (!signer) throw new Error('wallet_signer_missing');
+
+      // VeWorld iOS in-app browser can be flaky when multiple signing requests are fired back-to-back.
+      // Yield to the event loop briefly before starting the typed-data signing flow.
+      await new Promise((resolve) => window.setTimeout(resolve, 450));
 
       const challenge = await apiPost<ChallengeResponse>('/auth/challenge', { address: addr }, null);
-      const sig = await signer.signTypedData(
+      const sig = await requestTypedData(
         challenge.typed_data.domain,
         challenge.typed_data.types,
-        challenge.typed_data.value
+        challenge.typed_data.value,
+        { signer: addr }
       );
 
       const verify = await apiPost<VerifyResponse>(
