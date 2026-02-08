@@ -30,6 +30,9 @@ export type DbReceiptSubmission = {
   retinfo_is_availd: string | null;
   time_threshold: string | null;
   points_total: number;
+  receipt_fingerprint: string | null;
+  rejection_code: string | null;
+  duplicate_of: string | null;
   verified_at: string | null;
   created_at: string;
   updated_at: string;
@@ -42,7 +45,8 @@ function ensureOk<T>(
   if (res.error) {
     const errText =
       typeof res.error === 'object' ? JSON.stringify(res.error) : String(res.error);
-    throw new Error(`${message}: ${errText}`);
+    // Preserve the structured PostgREST error for callers that need to inspect error codes.
+    throw new Error(`${message}: ${errText}`, { cause: res.error });
   }
   return res.data;
 }
@@ -161,6 +165,31 @@ export function createRepo(supabase: SupabaseClient) {
         .select('*')
         .single();
       return ensureOk(res, 'Failed to update submission') as DbReceiptSubmission;
+    },
+
+    async computeReceiptFingerprint(input: {
+      receipt_time_raw: string | null;
+      dify_drink_list: unknown | null;
+    }): Promise<string | null> {
+      const res = await supabase.rpc('bb_receipt_fingerprint', {
+        receipt_time_raw: input.receipt_time_raw,
+        dify_drink_list: input.dify_drink_list as any
+      });
+      const data = ensureOk(res, 'Failed to compute receipt fingerprint');
+      return typeof data === 'string' && data.trim() ? data.trim() : null;
+    },
+
+    async getVerifiedSubmissionByFingerprint(fingerprint: string): Promise<Pick<DbReceiptSubmission, 'id' | 'user_id' | 'created_at'> | null> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .select('id,user_id,created_at')
+        .eq('receipt_fingerprint', fingerprint)
+        .eq('status', 'verified')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch submission by fingerprint');
+      return (data as any) ?? null;
     },
 
     async updateSubmissionStatusIfCurrent(input: {

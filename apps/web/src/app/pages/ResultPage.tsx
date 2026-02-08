@@ -9,6 +9,8 @@ type Submission = {
   status: 'pending_upload' | 'uploaded' | 'verifying' | 'verified' | 'rejected' | 'not_claimable' | string;
   points_total: number;
   dify_drink_list: unknown | null;
+  rejection_code: string | null;
+  duplicate_of: string | null;
   created_at: string;
 };
 
@@ -67,6 +69,69 @@ export default function ResultPage() {
 
   const status = submission.status;
   const totalPoints = submission.points_total ?? 0;
+  const rejectionCode = submission.rejection_code;
+
+  if (status === 'rejected' && rejectionCode === 'duplicate_receipt') {
+    return (
+      <Screen>
+        <div className="mx-auto flex min-h-dvh max-w-[420px] flex-col px-5 pb-10 pt-10">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => nav('/')}
+              className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white/80"
+              aria-label="Back"
+            >
+              ←
+            </button>
+            <div className="text-xs font-semibold tracking-[0.22em] text-white/80">RESULTS</div>
+            <button
+              type="button"
+              onClick={() => nav('/')}
+              className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white/70"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="mt-10 flex flex-col items-center">
+            <div className="grid h-28 w-28 place-items-center rounded-full border border-yellow-500/40 bg-yellow-500/10">
+              <div className="text-4xl text-yellow-200">!</div>
+            </div>
+            <div className="mt-6 text-center text-sm font-semibold tracking-[0.22em]">RECEIPT ALREADY USED</div>
+            <div className="mt-2 max-w-[320px] text-center text-xs text-white/55">
+              该小票已被使用，无法重复领取积分。
+            </div>
+
+            {submission.duplicate_of && (
+              <div className="mt-5 w-full rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-[10px] tracking-[0.22em] text-white/40">DETAILS</div>
+                <div className="mt-2 break-all text-xs text-white/65">duplicate_of: {submission.duplicate_of}</div>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-auto space-y-3">
+            <button
+              type="button"
+              onClick={() => nav('/scan')}
+              className="w-full rounded-2xl bg-emerald-300 py-4 text-sm font-semibold text-black transition active:scale-[0.99]"
+            >
+              SCAN NEW RECEIPT
+            </button>
+            <button
+              type="button"
+              onClick={() => nav('/')}
+              className="w-full rounded-2xl border border-white/15 bg-white/5 py-4 text-sm font-semibold text-white/80 transition active:scale-[0.99]"
+            >
+              BACK TO HOME
+            </button>
+          </div>
+        </div>
+      </Screen>
+    );
+  }
 
   if (status === 'rejected') {
     return (
@@ -240,4 +305,3 @@ export default function ResultPage() {
     </Screen>
   );
 }
-

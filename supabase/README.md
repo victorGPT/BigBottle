@@ -5,7 +5,9 @@ This folder contains SQL migrations for the MVP database schema.
 ## Apply
 
 1. Open Supabase SQL editor (or psql) for your project
-2. Run: `supabase/migrations/20260206_init.sql`
+2. Run migrations in order:
+   - `supabase/migrations/20260206_init.sql`
+   - `supabase/migrations/20260208_receipt_dedup.sql`
 
 ## Tables
 

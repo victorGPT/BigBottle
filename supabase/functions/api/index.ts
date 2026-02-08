@@ -201,6 +201,9 @@ type DbReceiptSubmission = {
   retinfo_is_availd: string | null;
   time_threshold: string | null;
   points_total: number;
+  receipt_fingerprint: string | null;
+  rejection_code: string | null;
+  duplicate_of: string | null;
   verified_at: string | null;
   created_at: string;
   updated_at: string;
@@ -209,7 +212,8 @@ type DbReceiptSubmission = {
 function ensureOk<T>(res: { data: T; error: unknown | null }, message: string): T {
   if (res.error) {
     const errText = typeof res.error === 'object' ? JSON.stringify(res.error) : String(res.error);
-    throw new Error(`${message}: ${errText}`);
+    // Preserve the structured PostgREST error for callers that need to inspect error codes.
+    throw new Error(`${message}: ${errText}`, { cause: res.error });
   }
   return res.data;
 }
@@ -302,6 +306,30 @@ function createRepo(supabase: SupabaseClient) {
     ): Promise<DbReceiptSubmission> {
       const res = await supabase.from('receipt_submissions').update(patch).eq('id', id).select('*').single();
       return ensureOk(res, 'Failed to update submission') as DbReceiptSubmission;
+    },
+
+    async computeReceiptFingerprint(input: { receipt_time_raw: string | null; dify_drink_list: unknown | null }): Promise<string | null> {
+      const res = await supabase.rpc('bb_receipt_fingerprint', {
+        receipt_time_raw: input.receipt_time_raw,
+        dify_drink_list: input.dify_drink_list as any
+      });
+      const data = ensureOk(res, 'Failed to compute receipt fingerprint');
+      return typeof data === 'string' && data.trim() ? data.trim() : null;
+    },
+
+    async getVerifiedSubmissionByFingerprint(
+      fingerprint: string
+    ): Promise<Pick<DbReceiptSubmission, 'id' | 'user_id' | 'created_at'> | null> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .select('id,user_id,created_at')
+        .eq('receipt_fingerprint', fingerprint)
+        .eq('status', 'verified')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch submission by fingerprint');
+      return (data as any) ?? null;
     },
 
     async updateSubmissionStatusIfCurrent(input: { id: string; from: string; to: string }): Promise<DbReceiptSubmission | null> {
@@ -423,6 +451,18 @@ async function requireAuth(config: AppConfig, req: Request): Promise<AuthedUser 
 
 function normalizeBoolString(input: string): string {
   return input.trim().toLowerCase();
+}
+
+function getPostgresErrorCode(err: unknown): string | null {
+  if (!(err instanceof Error)) return null;
+  const cause = (err as any).cause;
+  if (!cause || typeof cause !== 'object') return null;
+  const code = (cause as any).code;
+  return typeof code === 'string' ? code : null;
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return getPostgresErrorCode(err) === '23505';
 }
 
 const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
@@ -1030,16 +1070,50 @@ const handleRequest: (config: AppConfig) => HttpHandler =
         const { totalPoints } = computeTotalPoints(payload.drinkList);
         const finalStatus = ok ? (totalPoints > 0 ? 'verified' : 'not_claimable') : 'rejected';
 
-        const updated = await repo.updateSubmission(claimed.id, {
-          status: finalStatus,
-          dify_raw: difyRaw as any,
-          dify_drink_list: (payload.drinkList ?? null) as any,
-          receipt_time_raw: receiptTimeRaw,
-          retinfo_is_availd: retinfoIsAvaild,
-          time_threshold: timeThreshold,
-          points_total: ok ? totalPoints : 0,
-          verified_at: nowIso
-        });
+        const receiptFingerprint =
+          finalStatus === 'verified'
+            ? await repo.computeReceiptFingerprint({
+                receipt_time_raw: receiptTimeRaw,
+                dify_drink_list: (payload.drinkList ?? null) as any
+              })
+            : null;
+
+        let updated: DbReceiptSubmission;
+        try {
+          updated = await repo.updateSubmission(claimed.id, {
+            status: finalStatus,
+            dify_raw: difyRaw as any,
+            dify_drink_list: (payload.drinkList ?? null) as any,
+            receipt_time_raw: receiptTimeRaw,
+            retinfo_is_availd: retinfoIsAvaild,
+            time_threshold: timeThreshold,
+            points_total: ok ? totalPoints : 0,
+            receipt_fingerprint: finalStatus === 'verified' ? receiptFingerprint : null,
+            rejection_code: null,
+            duplicate_of: null,
+            verified_at: nowIso
+          });
+        } catch (err) {
+          // Concurrency-safe dedup: DB unique index on verified receipt_fingerprint.
+          if (finalStatus === 'verified' && receiptFingerprint && isUniqueViolation(err)) {
+            const winner = await repo.getVerifiedSubmissionByFingerprint(receiptFingerprint);
+            updated = await repo.updateSubmission(claimed.id, {
+              status: 'rejected',
+              dify_raw: difyRaw as any,
+              dify_drink_list: (payload.drinkList ?? null) as any,
+              receipt_time_raw: receiptTimeRaw,
+              retinfo_is_availd: retinfoIsAvaild,
+              time_threshold: timeThreshold,
+              points_total: 0,
+              receipt_fingerprint: receiptFingerprint,
+              rejection_code: 'duplicate_receipt',
+              duplicate_of: winner?.id ?? null,
+              verified_at: nowIso
+            });
+          } else {
+            throw err;
+          }
+        }
 
         if (updated.status === 'rejected') {
           try {

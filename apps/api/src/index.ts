@@ -13,6 +13,7 @@ import { createRepo, createSupabaseAdmin } from './supabase.js';
 import { computeTotalPoints } from './scoring.js';
 import { createS3Client, deleteObject, headObject, presignGetObject, presignPutObject } from './s3.js';
 import { extractDifyReceiptPayload, runDify } from './dify.js';
+import { isUniqueViolation } from './postgres-errors.js';
 
 type AuthedRequest = {
   user: { sub: string; wallet: string };
@@ -393,17 +394,50 @@ async function main() {
       const { totalPoints } = computeTotalPoints(payload.drinkList);
 
       const finalStatus = ok ? (totalPoints > 0 ? 'verified' : 'not_claimable') : 'rejected';
+      const receiptFingerprint =
+        finalStatus === 'verified'
+          ? await repo.computeReceiptFingerprint({
+              receipt_time_raw: receiptTimeRaw,
+              dify_drink_list: (payload.drinkList ?? null) as any
+            })
+          : null;
 
-      const updated = await repo.updateSubmission(claimed.id, {
-        status: finalStatus,
-        dify_raw: difyRaw as any,
-        dify_drink_list: (payload.drinkList ?? null) as any,
-        receipt_time_raw: receiptTimeRaw,
-        retinfo_is_availd: retinfoIsAvaild,
-        time_threshold: timeThreshold,
-        points_total: ok ? totalPoints : 0,
-        verified_at: nowIso
-      });
+      let updated: any;
+      try {
+        updated = await repo.updateSubmission(claimed.id, {
+          status: finalStatus,
+          dify_raw: difyRaw as any,
+          dify_drink_list: (payload.drinkList ?? null) as any,
+          receipt_time_raw: receiptTimeRaw,
+          retinfo_is_availd: retinfoIsAvaild,
+          time_threshold: timeThreshold,
+          points_total: ok ? totalPoints : 0,
+          receipt_fingerprint: finalStatus === 'verified' ? receiptFingerprint : null,
+          rejection_code: null,
+          duplicate_of: null,
+          verified_at: nowIso
+        });
+      } catch (err) {
+        // Concurrency-safe dedup: DB unique index on verified receipt_fingerprint.
+        if (finalStatus === 'verified' && receiptFingerprint && isUniqueViolation(err)) {
+          const winner = await repo.getVerifiedSubmissionByFingerprint(receiptFingerprint);
+          updated = await repo.updateSubmission(claimed.id, {
+            status: 'rejected',
+            dify_raw: difyRaw as any,
+            dify_drink_list: (payload.drinkList ?? null) as any,
+            receipt_time_raw: receiptTimeRaw,
+            retinfo_is_availd: retinfoIsAvaild,
+            time_threshold: timeThreshold,
+            points_total: 0,
+            receipt_fingerprint: receiptFingerprint,
+            rejection_code: 'duplicate_receipt',
+            duplicate_of: winner?.id ?? null,
+            verified_at: nowIso
+          });
+        } else {
+          throw err;
+        }
+      }
 
       if (updated.status === 'rejected') {
         try {
