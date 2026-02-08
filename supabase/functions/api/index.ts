@@ -317,6 +317,12 @@ function createRepo(supabase: SupabaseClient) {
       return typeof data === 'string' && data.trim() ? data.trim() : null;
     },
 
+    async getUserPointsTotal(userId: string): Promise<number> {
+      const res = await supabase.rpc('bb_user_points_total', { user_id: userId });
+      const data = ensureOk(res, 'Failed to compute user points total');
+      return typeof data === 'number' && Number.isFinite(data) ? data : 0;
+    },
+
     async getVerifiedSubmissionByFingerprint(
       fingerprint: string
     ): Promise<Pick<DbReceiptSubmission, 'id' | 'user_id' | 'created_at'> | null> {
@@ -835,6 +841,15 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       }
 
       return jsonResponse(config, req, 200, { user });
+    }
+
+    // --- Account ---
+    if (req.method === 'GET' && ctx.routePath === '/account/summary') {
+      const authed = await requireAuth(config, req);
+      if (!authed) return errorResponse(config, req, 401, 'unauthorized');
+
+      const pointsTotal = await getRepo().getUserPointsTotal(authed.sub);
+      return jsonResponse(config, req, 200, { summary: { points_total: pointsTotal, level: null } });
     }
 
     // --- Submissions ---

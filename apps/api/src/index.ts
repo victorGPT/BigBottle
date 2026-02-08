@@ -179,6 +179,13 @@ async function main() {
     return reply.send({ user });
   });
 
+  // --- Account ---
+  app.get('/account/summary', { preHandler: authenticate }, async (request: any, reply) => {
+    const { sub: userId } = (request as AuthedRequest).user;
+    const pointsTotal = await repo.getUserPointsTotal(userId);
+    return reply.send({ summary: { points_total: pointsTotal, level: null } });
+  });
+
   // --- Submissions ---
   const InitSubmissionBody = z.object({
     client_submission_id: z.string().uuid(),
