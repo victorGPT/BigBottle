@@ -20,21 +20,25 @@ export async function presignPutObject(params: {
   contentType: string;
   expiresInSeconds: number;
   cacheControl?: string;
+  acl?: 'public-read';
 }): Promise<{ url: string; headers: Record<string, string> }> {
   const input: PutObjectCommandInput = {
     Bucket: params.bucket,
     Key: params.key,
     ContentType: params.contentType,
-    CacheControl: params.cacheControl
+    CacheControl: params.cacheControl,
+    ACL: params.acl
   };
   const url = await getSignedUrl(params.s3, new PutObjectCommand(input), {
     expiresIn: params.expiresInSeconds
   });
+  const headers: Record<string, string> = {
+    'Content-Type': params.contentType
+  };
+  if (params.acl) headers['x-amz-acl'] = params.acl;
   return {
     url,
-    headers: {
-      'Content-Type': params.contentType
-    }
+    headers
   };
 }
 

@@ -676,19 +676,24 @@ async function presignPutObject(params: {
   contentType: string;
   expiresInSeconds: number;
   cacheControl?: string;
+  acl?: 'public-read';
 }): Promise<{ url: string; headers: Record<string, string> }> {
   const url = s3ObjectUrl({ region: params.region, bucket: params.bucket, key: params.key });
   url.searchParams.set('X-Amz-Expires', String(params.expiresInSeconds));
 
   // For simplicity and compatibility across clients, we do not sign Content-Type.
   // The caller can still pass it in the upload headers.
+  const signedHeaders: Record<string, string> = {};
+  if (params.acl) signedHeaders['x-amz-acl'] = params.acl;
   const signed = await params.s3.sign(url, {
     method: 'PUT',
+    headers: signedHeaders,
     aws: { signQuery: true }
   });
 
   const headers: Record<string, string> = { 'Content-Type': params.contentType };
   if (params.cacheControl) headers['Cache-Control'] = params.cacheControl;
+  if (params.acl) headers['x-amz-acl'] = params.acl;
   return { url: signed.url, headers };
 }
 
@@ -879,6 +884,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
             bucket: existing.image_bucket,
             key: existing.image_key,
             contentType: existingContentType,
+            acl: 'public-read',
             expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
           });
           return jsonResponse(config, req, 200, { submission: existing, upload: { method: 'PUT', ...upload } });
@@ -903,7 +909,10 @@ const handleRequest: (config: AppConfig) => HttpHandler =
                 : 'bin';
 
       const submissionId = crypto.randomUUID();
-      const imageKey = `receipts/${authed.sub}/${clientSubmissionId}.${ext}`;
+      const nowIso = new Date().toISOString();
+      const month = nowIso.slice(0, 7);
+      const day = nowIso.slice(0, 10);
+      const imageKey = `uploads/${month}/${day}/${submissionId}.${ext}`;
 
       let created: DbReceiptSubmission;
       try {
@@ -930,6 +939,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
               bucket: again.image_bucket,
               key: again.image_key,
               contentType: (again.image_content_type || contentType).toLowerCase(),
+              acl: 'public-read',
               expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
             });
             return jsonResponse(config, req, 200, { submission: again, upload: { method: 'PUT', ...upload } });
@@ -945,6 +955,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
         bucket: created.image_bucket,
         key: created.image_key,
         contentType: (created.image_content_type || contentType).toLowerCase(),
+        acl: 'public-read',
         expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
       });
 

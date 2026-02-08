@@ -210,6 +210,7 @@ async function main() {
           bucket: existing.image_bucket,
           key: existing.image_key,
           contentType: existingContentType,
+          acl: 'public-read',
           expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
         });
         return reply.send({ submission: existing, upload: { method: 'PUT', ...upload } });
@@ -234,7 +235,10 @@ async function main() {
               : 'bin';
 
     const submissionId = randomUUID();
-    const imageKey = `receipts/${userId}/${parsed.data.client_submission_id}.${ext}`;
+    const nowIso = new Date().toISOString();
+    const month = nowIso.slice(0, 7);
+    const day = nowIso.slice(0, 10);
+    const imageKey = `uploads/${month}/${day}/${submissionId}.${ext}`;
 
     let created: Awaited<ReturnType<typeof repo.createSubmission>>;
     try {
@@ -262,6 +266,7 @@ async function main() {
             bucket: again.image_bucket,
             key: again.image_key,
             contentType: again.image_content_type || contentType,
+            acl: 'public-read',
             expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
           });
           return reply.send({ submission: again, upload: { method: 'PUT', ...upload } });
@@ -276,6 +281,7 @@ async function main() {
       bucket: created.image_bucket,
       key: created.image_key,
       contentType: created.image_content_type || contentType,
+      acl: 'public-read',
       expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
     });
 
