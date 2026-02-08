@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Screen from '../components/Screen';
+import BottomTabBar from '../components/BottomTabBar';
 import { useAuth } from '../../state/auth';
 import { apiGet } from '../../util/api';
 
@@ -58,9 +59,7 @@ export default function DashboardPage() {
 
   return (
     <Screen>
-      <div
-        className={`relative mx-auto min-h-dvh max-w-[420px] px-5 pt-10 ${isLoggedIn ? 'pb-10' : 'pb-32'}`}
-      >
+      <div className="relative mx-auto min-h-dvh max-w-[420px] px-5 pb-32 pt-10">
         <div className="flex items-start justify-between">
           <div>
             <div className="text-lg font-semibold tracking-tight">BIG BOTTLE</div>
@@ -147,16 +146,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {isLoggedIn ? (
-          <button
-            type="button"
-            onClick={() => nav('/scan')}
-            className="fixed bottom-8 left-1/2 flex h-16 w-16 -translate-x-1/2 items-center justify-center rounded-full border border-emerald-200/30 bg-emerald-300 text-black shadow-[0_10px_40px_rgba(16,185,129,0.25)] transition active:scale-[0.98]"
-            aria-label="Scan receipt"
-          >
-            <span className="text-xl font-black">⌁</span>
-          </button>
-        ) : (
+        {!isLoggedIn && (
           <div className="fixed inset-x-0 bottom-8">
             <div className="mx-auto max-w-[420px] px-5">
               <button
@@ -171,6 +161,8 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {isLoggedIn && <BottomTabBar />}
     </Screen>
   );
 }

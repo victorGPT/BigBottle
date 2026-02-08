@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useWallet } from '@vechain/dapp-kit-react';
 
 import Screen from '../components/Screen';
+import BottomTabBar from '../components/BottomTabBar';
 import { useAuth } from '../../state/auth';
 import { apiPost } from '../../util/api';
 
@@ -24,7 +25,7 @@ type VerifyResponse = {
 
 export default function WalletPage() {
   const nav = useNavigate();
-  const { state, setToken } = useAuth();
+  const { state, setToken, logout } = useAuth();
   const { connect, setSource, account, source, requestTypedData } = useWallet();
 
   const [isBusy, setIsBusy] = useState(false);
@@ -67,10 +68,8 @@ export default function WalletPage() {
   }, [hasVeWorld, setSource]);
 
   const connectedAddress = useMemo(() => (account ? String(account) : null), [account]);
-
-  useEffect(() => {
-    if (state.status === 'logged_in') nav('/', { replace: true });
-  }, [nav, state.status]);
+  const isLoggedIn = state.status === 'logged_in';
+  const walletAddress = isLoggedIn ? state.user.wallet_address : null;
 
   async function onLogin() {
     setError(null);
@@ -116,7 +115,7 @@ export default function WalletPage() {
 
   return (
     <Screen>
-      <div className="mx-auto flex min-h-dvh max-w-[420px] flex-col px-5 pb-7 pt-10">
+      <div className={`mx-auto flex min-h-dvh max-w-[420px] flex-col px-5 pt-10 ${isLoggedIn ? 'pb-32' : 'pb-7'}`}>
         <div className="flex items-center justify-between">
           <div>
             <div className="text-xl font-semibold tracking-tight">Wallet</div>
@@ -154,31 +153,55 @@ export default function WalletPage() {
         </div>
 
         <div className="mt-auto">
-          <div className="text-center text-sm font-medium">登录以管理钱包</div>
-          <div className="mt-1 text-center text-xs text-white/55">
-            登录后可查看余额、发起扫描并领取积分
-          </div>
+          {isLoggedIn ? (
+            <>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-[10px] tracking-[0.24em] text-white/40">CONNECTED</div>
+                <div className="mt-2 break-all text-xs text-white/70">{walletAddress}</div>
+              </div>
 
-          {error && (
-            <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-              {error}
-            </div>
+              <button
+                type="button"
+                onClick={() => {
+                  logout();
+                  nav('/', { replace: true });
+                }}
+                className="mt-4 w-full rounded-2xl border border-white/15 bg-white/5 py-4 text-sm font-semibold text-white/80 transition active:scale-[0.99]"
+              >
+                LOG OUT
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="text-center text-sm font-medium">登录以管理钱包</div>
+              <div className="mt-1 text-center text-xs text-white/55">
+                登录后可查看余额、发起扫描并领取积分
+              </div>
+
+              {error && (
+                <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={onLogin}
+                disabled={isBusy || !hasVeWorld}
+                className="mt-5 w-full rounded-2xl bg-[#F59E0B] py-4 text-sm font-semibold text-black transition active:scale-[0.99] disabled:opacity-60"
+              >
+                {isBusy ? '登录中...' : '立即登录'}
+              </button>
+
+              <div className="mt-3 text-center text-[11px] text-white/45">
+                请使用 VeWorld 打开此应用完成登录
+              </div>
+            </>
           )}
-
-          <button
-            type="button"
-            onClick={onLogin}
-            disabled={isBusy || !hasVeWorld}
-            className="mt-5 w-full rounded-2xl bg-[#F59E0B] py-4 text-sm font-semibold text-black transition active:scale-[0.99] disabled:opacity-60"
-          >
-            {isBusy ? '登录中...' : '立即登录'}
-          </button>
-
-          <div className="mt-3 text-center text-[11px] text-white/45">
-            请使用 VeWorld 打开此应用完成登录
-          </div>
         </div>
       </div>
+
+      {isLoggedIn && <BottomTabBar />}
     </Screen>
   );
 }
