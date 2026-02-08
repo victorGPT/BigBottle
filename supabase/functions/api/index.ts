@@ -977,7 +977,23 @@ const handleRequest: (config: AppConfig) => HttpHandler =
       const repo = getRepo();
       const s3 = getS3();
 
+      const verifyStart = performance.now();
+      const timing: Record<string, number | null> = {
+        db_get_ms: null,
+        db_claim_ms: null,
+        s3_head_ms: null,
+        s3_presign_get_ms: null,
+        dify_ms: null,
+        payload_extract_ms: null,
+        fingerprint_ms: null,
+        db_update_ms: null,
+        s3_delete_ms: null,
+        total_ms: null
+      };
+
+      const tDbGet = performance.now();
       const submission = await repo.getSubmissionById(submissionId);
+      timing.db_get_ms = Math.round(performance.now() - tDbGet);
       if (!submission || submission.user_id !== authed.sub) return errorResponse(config, req, 404, 'not_found');
 
       if (['verified', 'rejected', 'not_claimable'].includes(submission.status)) {
@@ -990,25 +1006,35 @@ const handleRequest: (config: AppConfig) => HttpHandler =
         return jsonResponse(config, req, 200, { submission });
       }
 
+      const tDbClaim = performance.now();
       const claimed = await repo.updateSubmissionStatusIfCurrent({ id: submission.id, from: 'uploaded', to: 'verifying' });
+      timing.db_claim_ms = Math.round(performance.now() - tDbClaim);
       if (!claimed) {
         const fresh = await repo.getSubmissionById(submission.id);
         if (!fresh || fresh.user_id !== authed.sub) return errorResponse(config, req, 404, 'not_found');
         return jsonResponse(config, req, 200, { submission: fresh });
       }
 
+      let updatedForLog: DbReceiptSubmission | null = null;
+      let imageBytesForLog: number | null = null;
+      let errorForLog: { message: string; code: string | null } | null = null;
+
       try {
+        const tHead = performance.now();
         const meta = await headObject({
           s3,
           region: config.AWS_REGION,
           bucket: claimed.image_bucket,
           key: claimed.image_key
         });
+        timing.s3_head_ms = Math.round(performance.now() - tHead);
         if (!meta) {
           const reset = await repo.updateSubmission(claimed.id, { status: 'pending_upload' });
           return jsonResponse(config, req, 409, { error: 'upload_incomplete', submission: reset });
         }
+        imageBytesForLog = meta.contentLength;
 
+        const tPresignGet = performance.now();
         const getUrl = await presignGetObject({
           s3,
           region: config.AWS_REGION,
@@ -1016,24 +1042,34 @@ const handleRequest: (config: AppConfig) => HttpHandler =
           key: claimed.image_key,
           expiresInSeconds: Math.max(60, config.S3_PRESIGN_EXPIRES_SECONDS)
         });
+        timing.s3_presign_get_ms = Math.round(performance.now() - tPresignGet);
 
+        const tDify = performance.now();
         const difyRaw = await runDify(config, { imageUrl: getUrl.url, userRef: authed.wallet });
+        timing.dify_ms = Math.round(performance.now() - tDify);
+
+        const tExtract = performance.now();
         const payload = extractDifyReceiptPayload(difyRaw);
+        timing.payload_extract_ms = Math.round(performance.now() - tExtract);
 
         if (!payload) {
+          const tDbUpdate = performance.now();
           const updated = await repo.updateSubmission(claimed.id, {
             status: 'rejected',
             dify_raw: difyRaw as any,
             points_total: 0,
             verified_at: new Date().toISOString()
           });
+          timing.db_update_ms = Math.round(performance.now() - tDbUpdate);
           try {
+            const tDelete = performance.now();
             await deleteObject({
               s3,
               region: config.AWS_REGION,
               bucket: claimed.image_bucket,
               key: claimed.image_key
             });
+            timing.s3_delete_ms = Math.round(performance.now() - tDelete);
           } catch (deleteErr) {
             console.warn('s3_delete_rejected_image_failed', {
               bucket: claimed.image_bucket,
@@ -1041,6 +1077,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
               message: deleteErr instanceof Error ? deleteErr.message : String(deleteErr)
             });
           }
+          updatedForLog = updated;
           return jsonResponse(config, req, 200, { submission: updated });
         }
 
@@ -1070,6 +1107,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
         const { totalPoints } = computeTotalPoints(payload.drinkList);
         const finalStatus = ok ? (totalPoints > 0 ? 'verified' : 'not_claimable') : 'rejected';
 
+        const tFingerprint = performance.now();
         const receiptFingerprint =
           finalStatus === 'verified'
             ? await repo.computeReceiptFingerprint({
@@ -1077,8 +1115,10 @@ const handleRequest: (config: AppConfig) => HttpHandler =
                 dify_drink_list: (payload.drinkList ?? null) as any
               })
             : null;
+        timing.fingerprint_ms = Math.round(performance.now() - tFingerprint);
 
         let updated: DbReceiptSubmission;
+        const tDbUpdate = performance.now();
         try {
           updated = await repo.updateSubmission(claimed.id, {
             status: finalStatus,
@@ -1114,15 +1154,18 @@ const handleRequest: (config: AppConfig) => HttpHandler =
             throw err;
           }
         }
+        timing.db_update_ms = Math.round(performance.now() - tDbUpdate);
 
         if (updated.status === 'rejected') {
           try {
+            const tDelete = performance.now();
             await deleteObject({
               s3,
               region: config.AWS_REGION,
               bucket: claimed.image_bucket,
               key: claimed.image_key
             });
+            timing.s3_delete_ms = Math.round(performance.now() - tDelete);
           } catch (deleteErr) {
             console.warn('s3_delete_rejected_image_failed', {
               bucket: claimed.image_bucket,
@@ -1131,9 +1174,15 @@ const handleRequest: (config: AppConfig) => HttpHandler =
             });
           }
         }
+        updatedForLog = updated;
         return jsonResponse(config, req, 200, { submission: updated });
       } catch (err) {
         console.error('verification_failed', err);
+        errorForLog = {
+          message: err instanceof Error ? err.message : String(err),
+          code: getPostgresErrorCode(err)
+        };
+        const tDbUpdate = performance.now();
         const updated = await repo.updateSubmission(claimed.id, {
           status: 'rejected',
           dify_raw: {
@@ -1144,13 +1193,17 @@ const handleRequest: (config: AppConfig) => HttpHandler =
           points_total: 0,
           verified_at: new Date().toISOString()
         });
+        timing.db_update_ms = Math.round(performance.now() - tDbUpdate);
+        updatedForLog = updated;
         try {
+          const tDelete = performance.now();
           await deleteObject({
             s3,
             region: config.AWS_REGION,
             bucket: claimed.image_bucket,
             key: claimed.image_key
           });
+          timing.s3_delete_ms = Math.round(performance.now() - tDelete);
         } catch (deleteErr) {
           console.warn('s3_delete_rejected_image_failed', {
             bucket: claimed.image_bucket,
@@ -1159,6 +1212,18 @@ const handleRequest: (config: AppConfig) => HttpHandler =
           });
         }
         return jsonResponse(config, req, 200, { submission: updated });
+      } finally {
+        timing.total_ms = Math.round(performance.now() - verifyStart);
+        console.info('bb_verify_timing', {
+          submission_id: claimed.id,
+          user_id: authed.sub,
+          status: updatedForLog?.status ?? null,
+          points_total: updatedForLog?.points_total ?? null,
+          image_bytes: imageBytesForLog,
+          timing_ms: timing,
+          error: errorForLog,
+          dify_mode: config.DIFY_MODE
+        });
       }
     }
 
