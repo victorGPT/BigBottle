@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, ScanLine, Sprout, Trophy, Wallet as WalletIcon } from 'lucide-react';
+import { LayoutDashboard, ScanLine, Sprout, Trophy, User } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -14,7 +14,7 @@ const TABS: Tab[] = [
   { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
   { to: '/staking', label: 'Staking', icon: Sprout },
   { to: '/rewards', label: 'Rewards', icon: Trophy },
-  { to: '/wallet', label: 'Wallet', icon: WalletIcon }
+  { to: '/account', label: 'Account', icon: User }
 ];
 
 export default function BottomTabBar() {

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import WalletPage from '../src/app/pages/WalletPage';
+import AccountPage from '../src/app/pages/AccountPage';
 
 const mocks = vi.hoisted(() => {
   return {
@@ -49,7 +49,7 @@ vi.mock('@vechain/dapp-kit-react', () => {
   };
 });
 
-describe('WalletPage', () => {
+describe('AccountPage', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mocks.navigate.mockReset();
@@ -59,7 +59,7 @@ describe('WalletPage', () => {
     mocks.setSource.mockReset();
     mocks.requestTypedData.mockReset();
 
-    // Make WalletPage treat VeWorld as available.
+    // Make AccountPage treat VeWorld as available.
     (window as any).vechain = {};
   });
 
@@ -99,7 +99,7 @@ describe('WalletPage', () => {
       throw new Error(`Unexpected apiPost path: ${String(path)}`);
     });
 
-    render(<WalletPage />);
+    render(<AccountPage />);
 
     fireEvent.click(screen.getByRole('button', { name: '立即登录' }));
 

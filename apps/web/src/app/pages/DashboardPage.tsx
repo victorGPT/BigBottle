@@ -14,7 +14,7 @@ type Submission = {
 
 export default function DashboardPage() {
   const nav = useNavigate();
-  const { state, logout } = useAuth();
+  const { state } = useAuth();
   const isLoading = state.status === 'loading';
   const isLoggedIn = state.status === 'logged_in';
   const token = isLoggedIn ? state.token : null;
@@ -69,8 +69,7 @@ export default function DashboardPage() {
             type="button"
             onClick={() => {
               if (isLoading) return;
-              if (isLoggedIn) logout();
-              else nav('/wallet');
+              nav('/account');
             }}
             disabled={isLoading}
             className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-white/70"
@@ -151,7 +150,7 @@ export default function DashboardPage() {
             <div className="mx-auto max-w-[420px] px-5">
               <button
                 type="button"
-                onClick={() => nav('/wallet')}
+                onClick={() => nav('/account')}
                 className="w-full rounded-2xl bg-emerald-300 py-4 text-sm font-semibold text-black shadow-[0_10px_40px_rgba(16,185,129,0.18)] transition active:scale-[0.99]"
               >
                 CONNECT WALLET

@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import DashboardPage from './pages/DashboardPage';
-import WalletPage from './pages/WalletPage';
+import AccountPage from './pages/AccountPage';
 import ScanPage from './pages/ScanPage';
 import ResultPage from './pages/ResultPage';
 import StakingPage from './pages/StakingPage';
@@ -10,7 +10,7 @@ import RequireLogin from './components/RequireLogin';
 export default function App() {
   return (
     <Routes>
-      <Route path="/wallet" element={<WalletPage />} />
+      <Route path="/account" element={<AccountPage />} />
 
       <Route path="/" element={<DashboardPage />} />
       <Route

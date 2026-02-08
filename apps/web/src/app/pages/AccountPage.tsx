@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWallet } from '@vechain/dapp-kit-react';
+import { Progress } from '@base-ui/react/progress';
+import { Coins, LifeBuoy, ReceiptText } from 'lucide-react';
 
 import Screen from '../components/Screen';
 import BottomTabBar from '../components/BottomTabBar';
 import { useAuth } from '../../state/auth';
-import { apiPost } from '../../util/api';
+import { apiGet, apiPost } from '../../util/api';
 
 type TypedDataMessage = {
   domain: Record<string, unknown>;
@@ -23,13 +25,20 @@ type VerifyResponse = {
   user: { id: string; wallet_address: string; created_at: string };
 };
 
-export default function WalletPage() {
+type AccountSummary = {
+  points_total: number;
+  level: null;
+};
+
+export default function AccountPage() {
   const nav = useNavigate();
   const { state, setToken, logout } = useAuth();
   const { connect, setSource, account, source, requestTypedData } = useWallet();
 
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<AccountSummary | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   const [hasVeWorld, setHasVeWorld] = useState(() => {
     // DAppKit considers VeWorld "installed" when window.vechain exists.
@@ -70,6 +79,25 @@ export default function WalletPage() {
   const connectedAddress = useMemo(() => (account ? String(account) : null), [account]);
   const isLoggedIn = state.status === 'logged_in';
   const walletAddress = isLoggedIn ? state.user.wallet_address : null;
+  const token = isLoggedIn ? state.token : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!token) return;
+      setSummaryError(null);
+      try {
+        const res = await apiGet<{ summary: AccountSummary }>('/account/summary', token);
+        if (!cancelled) setSummary(res.summary);
+      } catch (e) {
+        if (!cancelled) setSummaryError(e instanceof Error ? e.message : String(e));
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   async function onLogin() {
     setError(null);
@@ -113,30 +141,59 @@ export default function WalletPage() {
     }
   }
 
+  const pointsText = isLoggedIn
+    ? summary
+      ? summary.points_total.toLocaleString()
+      : '—'
+    : '****';
+
   return (
     <Screen>
       <div className={`mx-auto flex min-h-dvh max-w-[420px] flex-col px-5 pt-10 ${isLoggedIn ? 'pb-32' : 'pb-7'}`}>
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-xl font-semibold tracking-tight">Wallet</div>
-            <div className="mt-1 text-xs text-white/50">Manage your assets</div>
+            <div className="text-xl font-semibold tracking-tight">Account</div>
+            <div className="mt-1 text-xs text-white/50">Manage your profile</div>
           </div>
           <div className="h-10 w-10 rounded-full border border-white/10 bg-white/5" />
         </div>
 
-        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
-          <div className="text-[10px] tracking-[0.24em] text-white/40">TOTAL BALANCE</div>
-          <div className="mt-2 text-2xl font-semibold">****</div>
-          <div className="mt-1 text-[11px] text-white/45">登录后查看余额</div>
+        <div className="mt-6 rounded-2xl border border-[#1E3A1E] bg-[#0F1F0F]/60 p-4">
+          <div className="text-[10px] font-semibold tracking-[0.24em] text-white/40">TOTAL POINTS</div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <div className="text-4xl font-semibold tabular-nums">{pointsText}</div>
+            <div className="text-[11px] font-semibold tracking-[0.22em] text-emerald-300">PTS</div>
+          </div>
+          <div className="mt-2 flex items-center justify-between text-[11px] text-white/45">
+            <div className="font-mono tracking-wider">LEVEL —</div>
+            <div className="text-white/35">Coming soon</div>
+          </div>
+          <Progress.Root
+            value={null}
+            aria-label="Level progress"
+            aria-valuetext="Coming soon"
+            className="mt-3 w-full"
+          >
+            <Progress.Track className="h-2 w-full overflow-hidden rounded-full bg-white/10 ring-1 ring-white/10">
+              <Progress.Indicator className="h-full w-full bg-gradient-to-r from-emerald-300/35 via-emerald-200/15 to-emerald-300/35 animate-pulse" />
+            </Progress.Track>
+          </Progress.Root>
         </div>
 
         <div className="mt-4 grid grid-cols-3 gap-3">
-          {['Receive', 'Send', 'Swap'].map((label) => (
+          {[
+            { label: 'Receipts', icon: ReceiptText },
+            { label: 'Points', icon: Coins },
+            { label: 'Support', icon: LifeBuoy }
+          ].map((item) => (
             <div
-              key={label}
-              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-center text-xs text-white/70"
+              key={item.label}
+              className="rounded-2xl border border-[#1E3A1E] bg-[#0F1F0F]/40 px-3 py-4 text-center text-xs text-white/80"
             >
-              {label}
+              <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-xl bg-[#1E3A1E]">
+                <item.icon size={16} className="text-white" />
+              </div>
+              <div className="mt-2 text-[11px] font-medium text-white/80">{item.label}</div>
             </div>
           ))}
         </div>
@@ -155,6 +212,11 @@ export default function WalletPage() {
         <div className="mt-auto">
           {isLoggedIn ? (
             <>
+              {summaryError && (
+                <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                  {summaryError}
+                </div>
+              )}
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <div className="text-[10px] tracking-[0.24em] text-white/40">CONNECTED</div>
                 <div className="mt-2 break-all text-xs text-white/70">{walletAddress}</div>
@@ -173,9 +235,9 @@ export default function WalletPage() {
             </>
           ) : (
             <>
-              <div className="text-center text-sm font-medium">登录以管理钱包</div>
+              <div className="text-center text-sm font-medium">登录以管理账户</div>
               <div className="mt-1 text-center text-xs text-white/55">
-                登录后可查看余额、发起扫描并领取积分
+                登录后可查看积分与等级、管理账户信息
               </div>
 
               {error && (
