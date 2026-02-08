@@ -117,6 +117,9 @@ export default function ScanPage() {
                       ? 'OPTIMIZING…'
                       : 'Ready'}
               </div>
+              {phase === 'verifying' && (
+                <div className="mt-1 text-[11px] text-white/40">预计约 10 秒</div>
+              )}
             </div>
           </div>
 
