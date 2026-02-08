@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Screen from '../components/Screen';
 import { useAuth } from '../../state/auth';
 import { apiPost } from '../../util/api';
+import { compressReceiptImage } from '../../util/receiptImageCompression';
 
 type Submission = {
   id: string;
@@ -30,19 +31,23 @@ export default function ScanPage() {
   const token = state.status === 'logged_in' ? state.token : null;
 
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [phase, setPhase] = useState<'idle' | 'uploading' | 'verifying' | 'error'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'compressing' | 'uploading' | 'verifying' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
 
   async function uploadAndVerify(file: File) {
     if (!token) throw new Error('unauthorized');
 
     setError(null);
+    setPhase('compressing');
+    const compressed = await compressReceiptImage(file);
+    const uploadFile = compressed.file;
+
     setPhase('uploading');
 
     const clientSubmissionId = crypto.randomUUID();
     const init = await apiPost<InitResponse>(
       '/submissions/init',
-      { client_submission_id: clientSubmissionId, content_type: file.type || 'application/octet-stream' },
+      { client_submission_id: clientSubmissionId, content_type: uploadFile.type || 'application/octet-stream' },
       token
     );
 
@@ -50,7 +55,7 @@ export default function ScanPage() {
       const res = await fetch(init.upload.url, {
         method: init.upload.method,
         headers: init.upload.headers,
-        body: file
+        body: uploadFile
       });
       if (!res.ok) throw new Error(`upload_failed:${res.status}`);
     }
@@ -73,7 +78,7 @@ export default function ScanPage() {
     }
   }
 
-  const isBusy = phase === 'uploading' || phase === 'verifying';
+  const isBusy = phase === 'compressing' || phase === 'uploading' || phase === 'verifying';
 
   return (
     <Screen>
@@ -104,7 +109,13 @@ export default function ScanPage() {
             <div className="absolute bottom-10 left-0 right-0 text-center">
               <div className="text-[10px] tracking-[0.22em] text-emerald-200/70">ALIGN RECEIPT</div>
               <div className="mt-2 text-[11px] text-white/50">
-                {phase === 'verifying' ? 'AI DETECTING…' : phase === 'uploading' ? 'UPLOADING…' : 'Ready'}
+                {phase === 'verifying'
+                  ? 'AI DETECTING…'
+                  : phase === 'uploading'
+                    ? 'UPLOADING…'
+                    : phase === 'compressing'
+                      ? 'OPTIMIZING…'
+                      : 'Ready'}
               </div>
             </div>
           </div>
@@ -148,4 +159,3 @@ export default function ScanPage() {
     </Screen>
   );
 }
-
