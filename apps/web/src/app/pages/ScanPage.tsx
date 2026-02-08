@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Progress } from '@base-ui/react/progress';
 import Screen from '../components/Screen';
 import { useAuth } from '../../state/auth';
 import { apiPost } from '../../util/api';
@@ -30,19 +31,61 @@ export default function ScanPage() {
   const { state } = useAuth();
   const token = state.status === 'logged_in' ? state.token : null;
 
+  const verifyProgressTimerRef = useRef<number | null>(null);
+
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [phase, setPhase] = useState<'idle' | 'compressing' | 'uploading' | 'verifying' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [progressValue, setProgressValue] = useState<number>(0);
+
+  const stopVerifyProgressTimer = useCallback(() => {
+    if (verifyProgressTimerRef.current == null) return;
+    window.clearInterval(verifyProgressTimerRef.current);
+    verifyProgressTimerRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (phase !== 'verifying') {
+      stopVerifyProgressTimer();
+      return;
+    }
+
+    const startMs = Date.now();
+    const durationMs = 10_000;
+    const startValue = 60;
+    const endValue = 95;
+
+    stopVerifyProgressTimer();
+    verifyProgressTimerRef.current = window.setInterval(() => {
+      const elapsedMs = Date.now() - startMs;
+      const t = Math.min(1, elapsedMs / durationMs);
+
+      // Ease out so it feels responsive early, but doesn't look stuck at the end.
+      const eased = 1 - Math.pow(1 - t, 3);
+      const next = Math.round(startValue + eased * (endValue - startValue));
+
+      setProgressValue((v) => (next > v ? next : v));
+
+      if (t >= 1) stopVerifyProgressTimer();
+    }, 200);
+
+    return stopVerifyProgressTimer;
+  }, [phase, stopVerifyProgressTimer]);
 
   async function uploadAndVerify(file: File) {
     if (!token) throw new Error('unauthorized');
 
+    stopVerifyProgressTimer();
+    setProgressValue(0);
+
     setError(null);
     setPhase('compressing');
+    setProgressValue(12);
     const compressed = await compressReceiptImage(file);
     const uploadFile = compressed.file;
 
     setPhase('uploading');
+    setProgressValue(40);
 
     const clientSubmissionId = crypto.randomUUID();
     const init = await apiPost<InitResponse>(
@@ -63,7 +106,11 @@ export default function ScanPage() {
     await apiPost(`/submissions/${init.submission.id}/complete`, {}, token);
 
     setPhase('verifying');
+    setProgressValue(60);
     await apiPost(`/submissions/${init.submission.id}/verify`, {}, token);
+
+    stopVerifyProgressTimer();
+    setProgressValue(100);
 
     nav(`/result/${init.submission.id}`, { replace: true });
   }
@@ -73,12 +120,30 @@ export default function ScanPage() {
     try {
       await uploadAndVerify(file);
     } catch (e) {
+      stopVerifyProgressTimer();
+      setProgressValue(0);
       setPhase('error');
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   const isBusy = phase === 'compressing' || phase === 'uploading' || phase === 'verifying';
+  const statusText =
+    phase === 'verifying'
+      ? 'AI DETECTING…'
+      : phase === 'uploading'
+        ? 'UPLOADING…'
+        : phase === 'compressing'
+          ? 'OPTIMIZING…'
+          : 'Ready';
+  const ariaValueText =
+    phase === 'compressing'
+      ? 'Optimizing image'
+      : phase === 'uploading'
+        ? 'Uploading image'
+        : phase === 'verifying'
+          ? 'AI detecting'
+          : undefined;
 
   return (
     <Screen>
@@ -108,17 +173,26 @@ export default function ScanPage() {
 
             <div className="absolute bottom-10 left-0 right-0 text-center">
               <div className="text-[10px] tracking-[0.22em] text-emerald-200/70">ALIGN RECEIPT</div>
-              <div className="mt-2 text-[11px] text-white/50">
-                {phase === 'verifying'
-                  ? 'AI DETECTING…'
-                  : phase === 'uploading'
-                    ? 'UPLOADING…'
-                    : phase === 'compressing'
-                      ? 'OPTIMIZING…'
-                      : 'Ready'}
+              <div className="mt-2 flex items-center justify-center gap-2 text-[11px] text-white/50">
+                <span>{statusText}</span>
+                {isBusy && <span className="tabular-nums text-white/35">{Math.round(progressValue)}%</span>}
               </div>
               {phase === 'verifying' && (
                 <div className="mt-1 text-[11px] text-white/40">预计约 10 秒</div>
+              )}
+              {isBusy && (
+                <div className="mx-auto mt-3 w-[220px]">
+                  <Progress.Root
+                    value={progressValue}
+                    aria-label="Receipt processing progress"
+                    aria-valuetext={ariaValueText}
+                    className="w-full"
+                  >
+                    <Progress.Track className="h-2 w-full overflow-hidden rounded-full bg-white/10 ring-1 ring-white/10">
+                      <Progress.Indicator className="h-full rounded-full bg-gradient-to-r from-emerald-300 via-emerald-200 to-lime-200 transition-[width] duration-200 ease-out" />
+                    </Progress.Track>
+                  </Progress.Root>
+                </div>
               )}
             </div>
           </div>
