@@ -59,6 +59,7 @@ export type DbRewardClaim = {
 
   status: string;
   tx_hash: string | null;
+  raw_tx: string | null;
   failure_reason: string | null;
 
   created_at: string;
