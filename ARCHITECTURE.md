@@ -37,6 +37,7 @@ Specs / single sources of truth for business rules:
 - MVP receipt verification + scoring: `docs/plans/2026-02-06-mvp-receipt-verification-brief.md`
 - Client image compression: `docs/plans/2026-02-08-client-image-compression-brief.md`
 - Receipt dedup + rejection codes: `docs/plans/2026-02-08-anti-cheat-receipt-dedup-brief.md`
+- Phase 2 rewards (points -> B3TR gasless claim): `docs/plans/2026-02-09-phase2-rewards-claim-brief.md`
 
 ## Repo Layout
 
@@ -81,8 +82,8 @@ File: `apps/web/src/app/App.tsx`
 - `/account` -> `AccountPage` (login lives here)
 - `/scan` -> `ScanPage` (requires login)
 - `/result/:id` -> `ResultPage` (requires login)
-- `/staking` -> `StakingPage` (requires login; Phase 2 placeholder)
-- `/rewards` -> `RewardsPage` (requires login; Phase 2 placeholder)
+- `/staking` -> `StakingPage` (requires login; placeholder)
+- `/rewards` -> `RewardsPage` (requires login; points -> B3TR claim UI)
 
 Auth gating:
 - `apps/web/src/app/components/RequireLogin.tsx` wraps protected routes.
@@ -146,6 +147,7 @@ Behavior:
 - `apps/web/tests/account-page.test.tsx`: login flow guardrails (including VeWorld signing sequence)
 - `apps/web/tests/scan-page-compress.test.tsx`: compression + init content type behavior
 - `apps/web/tests/result-page-duplicate.test.tsx`: duplicate receipt UI branch
+- `apps/web/tests/rewards-page.test.tsx`: rewards quote + claim request guardrails
 
 ## Local API Server (`apps/api`)
 
@@ -170,6 +172,14 @@ File: `apps/api/src/config.ts`
 - `DIFY_IMAGE_INPUT_KEY` (default `image_url`)
 - `DIFY_TIMEOUT_MS` (default `20000`)
 
+Phase 2 (Rewards / On-chain B3TR claim):
+- `VECHAIN_NETWORK` (`testnet` or `mainnet`, default `testnet`)
+- `VECHAIN_NODE_URL` (optional; defaults by network)
+- `VEBETTER_APP_ID` (bytes32 hex)
+- `X2EARN_REWARDS_POOL_ADDRESS`
+- `FEE_DELEGATION_URL` (VIP-201 sponsor URL)
+- `REWARD_DISTRIBUTOR_PRIVATE_KEY` (origin private key)
+
 ### Public HTTP API
 Auth:
 - `POST /auth/challenge` -> `{ challenge_id: string, typed_data: { domain, types, value } }`
@@ -178,6 +188,13 @@ Auth:
 
 Account:
 - `GET /account/summary` (auth) -> `{ summary: { points_total: number, level: null } }`
+
+Rewards (Phase 2):
+- `GET /rewards/quote` (auth) -> `{ quote: { points_total, points_locked, points_available, points_per_b3tr, conversion_rate_id, b3tr_amount_wei, b3tr_amount } }`
+- `POST /rewards/claim` (auth) -> `{ claim }`
+  - request: `{ client_claim_id: uuid }`
+- `GET /rewards/claims` (auth) -> `{ claims }`
+- `GET /rewards/claims/:id` (auth) -> `{ claim }` (best-effort receipt refresh)
 
 Submissions:
 - `POST /submissions/init` (auth) -> `{ submission, upload: { method: 'PUT', url, headers } | null }`
@@ -190,10 +207,19 @@ Submissions:
 Health:
 - `GET /health` -> `{ ok: true }`
 
+Rewards implementation (Phase 2):
+- `apps/api/src/rewards-service.ts`: quote + idempotent claim orchestration
+- `apps/api/src/vebetterRewards.ts`: VeChain delegated tx signing/broadcast + receipt polling
+- `apps/api/src/rewards.ts`: points -> B3TR conversion helpers
+
 ### Idempotency and State Machine
 Per brief: `docs/plans/2026-02-06-mvp-receipt-verification-brief.md`
 - `client_submission_id` is unique per user
 - init/complete/verify are safe under retries
+
+Rewards claim idempotency:
+- `client_claim_id` is the idempotency key (unique per user)
+- At most one in-flight claim per user (`pending`/`submitted`)
 
 ### Points and Dedup
 Per briefs:
@@ -214,12 +240,14 @@ On `rejected`, backend best-effort deletes the receipt image from S3.
 - `apps/api/src/scoring.test.ts`: scoring boundaries and parsing
 - `apps/api/src/config.test.ts`: env validation
 - `apps/api/src/s3.test.ts`: presign/head/delete helpers
+- `apps/api/src/rewards.test.ts`: points -> B3TR conversion helpers
 
 ## Supabase Edge Function API Gateway (`supabase/functions/api`)
 
 File: `supabase/functions/api/index.ts`
 - Deno runtime Edge Function
-- Mirrors the local Fastify routes under `apps/api`
+- Mirrors a subset of the local Fastify routes under `apps/api` (Phase 1)
+- Phase 2 rewards claim routes currently live in `apps/api` only
 - Uses its own JWT (`JWT_SECRET`) and does not rely on Supabase Auth
 
 Config:
@@ -286,11 +314,53 @@ Constraints:
 Functions:
 - `public.bb_user_points_total(user_id uuid) -> integer`
 
+### `supabase/migrations/20260209_rewards_claims.sql`
+Tables:
+- `public.reward_conversion_rates`
+  - `id uuid pk default gen_random_uuid()`
+  - `points_per_b3tr integer > 0`
+  - `active boolean`
+  - `created_at timestamptz default now()`
+- `public.reward_claims`
+  - `id uuid pk default gen_random_uuid()`
+  - `user_id uuid not null references users(id) on delete cascade`
+  - `wallet_address text not null` (must be lowercase via check constraint)
+  - `client_claim_id uuid not null` (idempotency key)
+  - `conversion_rate_id uuid not null references reward_conversion_rates(id)`
+  - `points_per_b3tr_snapshot integer > 0`
+  - `points_claimed integer > 0`
+  - `b3tr_amount_wei numeric > 0`
+  - `status text in ('pending','submitted','confirmed','failed')`
+  - `tx_hash text`
+  - `failure_reason text`
+  - `created_at timestamptz default now()`
+  - `updated_at timestamptz default now()`
+
+Indexes / constraints:
+- at most one active conversion rate (`active=true` partial unique index)
+- unique: `(user_id, client_claim_id)`
+- at most one in-flight claim per user (`status in ('pending','submitted')` partial unique index)
+- unique: `tx_hash` where not null
+
+Trigger / functions:
+- `public.set_updated_at()` trigger for `reward_claims.updated_at`
+- `public.bb_user_points_locked(user_id uuid) -> integer` (pending/submitted/confirmed)
+- `public.bb_user_points_claimed(user_id uuid) -> integer` (confirmed only)
+
+### `supabase/migrations/20260209_z_rewards_claims_raw_tx.sql`
+Columns added to `public.reward_claims`:
+- `raw_tx text` (persisted signed delegated tx for replay/diagnostics)
+
 ## External Integrations and Trust Boundaries
 
 VeWorld wallet:
 - Login requires typed-data signing.
 - iOS in-app browser stability: avoid back-to-back signing; wait before typed-data request and pass `{ signer: address }`.
+
+VeChain / VeBetterDAO (Phase 2 rewards):
+- Token distribution uses `X2EarnRewardsPool.distributeRewardWithProofAndMetadata(...)`.
+- Gasless claim uses delegated transactions (VIP-191) with a VIP-201 sponsor service URL.
+- Backend is the transaction origin (holds `REWARD_DISTRIBUTOR_PRIVATE_KEY`); users do not sign claim txs.
 
 Dify:
 - Backend must not trust `user_id` in Dify output for auth.
@@ -300,4 +370,3 @@ AWS S3:
 - Upload via presigned PUT.
 - Verification fetch via presigned GET.
 - On rejected submissions, object deletion is best-effort.
-
