@@ -173,6 +173,7 @@ File: `apps/api/src/config.ts`
 - `DIFY_TIMEOUT_MS` (default `20000`)
 
 Phase 2 (Rewards / On-chain B3TR claim):
+- `REWARDS_MODE` (`chain` or `mock`, default `chain`)
 - `VECHAIN_NETWORK` (`testnet` or `mainnet`, default `testnet`)
 - `VECHAIN_NODE_URL` (optional; defaults by network)
 - `VEBETTER_APP_ID` (bytes32 hex)

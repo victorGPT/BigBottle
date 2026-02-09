@@ -1,6 +1,7 @@
 import { Address, Transaction } from '@vechain/sdk-core';
 import { ProviderInternalBaseWallet, ThorClient, VeChainProvider, type TransactionReceipt } from '@vechain/sdk-network';
 import { getAddress, getBytes, Interface } from 'ethers';
+import { createHash } from 'crypto';
 
 import type { AppConfig } from './config.js';
 
@@ -81,6 +82,51 @@ export type RewardsChain = {
 };
 
 export function createRewardsChain(config: AppConfig): RewardsChain {
+  if (config.REWARDS_MODE === 'mock') {
+    function mockRawTx(claimId: string): string {
+      return `0x${claimId.replace(/-/g, '')}`;
+    }
+
+    function mockTxHashFromRawTx(rawTx: string): string {
+      return `0x${createHash('sha256').update(rawTx).digest('hex')}`;
+    }
+
+    return {
+      async signRewardDistributionTx(input: SignRewardDistributionInput): Promise<{ txHash: string; rawTx: string }> {
+        // Keep basic validation behavior consistent with chain mode.
+        getAddress(input.receiver);
+        if (input.amountWei <= 0n) throw new Error('amount_invalid');
+
+        const rawTx = mockRawTx(input.claimId);
+        const txHash = mockTxHashFromRawTx(rawTx);
+        return { txHash, rawTx };
+      },
+
+      async broadcastRawTransaction(rawTx: string): Promise<{ txHash: string }> {
+        return { txHash: mockTxHashFromRawTx(rawTx) };
+      },
+
+      async getTransactionReceipt(txHash: string): Promise<TransactionReceipt | null> {
+        const now = Math.floor(Date.now() / 1000);
+        return {
+          gasUsed: 0,
+          gasPayer: '0x0000000000000000000000000000000000000000',
+          paid: '0',
+          reward: '0',
+          reverted: false,
+          outputs: [],
+          meta: {
+            blockID: '0x' + '0'.repeat(64),
+            blockNumber: 1,
+            blockTimestamp: now,
+            txID: txHash,
+            txOrigin: '0x0000000000000000000000000000000000000000'
+          }
+        };
+      }
+    };
+  }
+
   let thorClient: ThorClient | null = null;
   let signerContext: SignerContext | null = null;
 

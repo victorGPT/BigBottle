@@ -129,6 +129,10 @@ Required for on-chain claim:
 - `FEE_DELEGATION_URL`: VIP-201 sponsor URL
 - `REWARD_DISTRIBUTOR_PRIVATE_KEY`: origin private key for distribution calls
 
+Local mock mode (no chain calls):
+
+- Set `REWARDS_MODE=mock` to exercise quote/claim UI and DB state transitions without requiring VeBetterDAO or sponsor configuration.
+
 ## Verification (Engineering)
 
 Automated:
@@ -152,4 +156,3 @@ Manual (testnet recommended first):
 
 - VIP-191 (Fee Delegation): https://github.com/vechain/VIPs/blob/master/vips/VIP-191.md
 - VIP-201 (Simple Gas Payer): https://github.com/vechain/VIPs/blob/master/vips/VIP-201.md
-

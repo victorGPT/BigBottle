@@ -26,6 +26,7 @@ const EnvSchema = z
     DIFY_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
 
     // Phase 2 (Rewards / On-chain B3TR claim)
+    REWARDS_MODE: z.enum(['chain', 'mock']).default('chain'),
     VECHAIN_NETWORK: z.enum(['testnet', 'mainnet']).default('testnet'),
     VECHAIN_NODE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
     VEBETTER_APP_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
