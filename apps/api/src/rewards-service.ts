@@ -154,7 +154,7 @@ export async function createOrGetRewardClaimAndSubmit(input: {
     });
 
     // Persist tx details before broadcasting to avoid duplicate issuance on retries.
-    const submitted = await repo.updateRewardClaim(claim.id, {
+    let submitted = await repo.updateRewardClaim(claim.id, {
       status: 'submitted',
       tx_hash: txHash,
       raw_tx: rawTx,
@@ -162,7 +162,10 @@ export async function createOrGetRewardClaimAndSubmit(input: {
     });
 
     try {
-      await chain.broadcastRawTransaction(rawTx);
+      const sent = await chain.broadcastRawTransaction(rawTx);
+      if (sent.txHash && sent.txHash !== submitted.tx_hash) {
+        submitted = await repo.updateRewardClaim(claim.id, { tx_hash: sent.txHash });
+      }
     } catch {
       // Best-effort: even if broadcasting fails, the raw tx is persisted and can be re-sent.
     }
@@ -181,4 +184,3 @@ export async function createOrGetRewardClaimAndSubmit(input: {
     throw err;
   }
 }
-
