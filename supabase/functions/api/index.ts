@@ -723,17 +723,17 @@ type RewardsChainConfig = {
 function requireRewardsChainConfig(config: AppConfig): RewardsChainConfig {
   const nodeUrl = config.VECHAIN_NODE_URL ?? defaultNodeUrl(config.VECHAIN_NETWORK);
 
-  if (!config.VEBETTER_APP_ID || !isBytes32Hex(config.VEBETTER_APP_ID)) {
-    throw new Error('rewards_unconfigured');
-  }
-  if (!config.X2EARN_REWARDS_POOL_ADDRESS) {
-    throw new Error('rewards_unconfigured');
-  }
-  if (!config.FEE_DELEGATION_URL) {
-    throw new Error('rewards_unconfigured');
-  }
+  const missing: string[] = [];
+  if (!config.VEBETTER_APP_ID || !isBytes32Hex(config.VEBETTER_APP_ID)) missing.push('VEBETTER_APP_ID');
+  if (!config.X2EARN_REWARDS_POOL_ADDRESS) missing.push('X2EARN_REWARDS_POOL_ADDRESS');
+  if (!config.FEE_DELEGATION_URL) missing.push('FEE_DELEGATION_URL');
   if (!config.REWARD_DISTRIBUTOR_PRIVATE_KEY || !isPrivateKeyHex(config.REWARD_DISTRIBUTOR_PRIVATE_KEY)) {
-    throw new Error('rewards_unconfigured');
+    missing.push('REWARD_DISTRIBUTOR_PRIVATE_KEY');
+  }
+  if (missing.length) {
+    // Include which env vars are missing (or invalid format) to speed up testnet setup.
+    // Never include secret values.
+    throw new Error(`rewards_unconfigured:${missing.join(',')}`);
   }
 
   return {
@@ -1422,7 +1422,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
         return jsonResponse(config, req, 200, { quote });
       } catch (err) {
         const code = err instanceof Error ? err.message : null;
-        if (code === 'rewards_unconfigured') return errorResponse(config, req, 503, 'rewards_unconfigured');
+        if (code && code.startsWith('rewards_unconfigured')) return errorResponse(config, req, 503, code);
         console.error('rewards_quote_failed', err);
         return errorResponse(config, req, 500, 'internal_error');
       }
@@ -1448,7 +1448,7 @@ const handleRequest: (config: AppConfig) => HttpHandler =
         return jsonResponse(config, req, 200, { claim: formatRewardClaimForApi(claim) });
       } catch (err) {
         const code = err instanceof Error ? err.message : null;
-        if (code === 'rewards_unconfigured') return errorResponse(config, req, 503, 'rewards_unconfigured');
+        if (code && code.startsWith('rewards_unconfigured')) return errorResponse(config, req, 503, code);
         if (code === 'no_claimable_points' || code === 'no_claimable_amount' || code === 'amount_invalid') {
           return errorResponse(config, req, 400, code);
         }

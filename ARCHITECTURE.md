@@ -196,6 +196,7 @@ Rewards (Phase 2):
   - request: `{ client_claim_id: uuid }`
 - `GET /rewards/claims` (auth) -> `{ claims }`
 - `GET /rewards/claims/:id` (auth) -> `{ claim }` (best-effort receipt refresh)
+  - 503 error: `rewards_unconfigured` (may include missing env var names as `rewards_unconfigured:<CSV>`)
 
 Submissions:
 - `POST /submissions/init` (auth) -> `{ submission, upload: { method: 'PUT', url, headers } | null }`
