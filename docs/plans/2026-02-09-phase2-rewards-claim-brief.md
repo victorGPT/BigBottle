@@ -133,6 +133,19 @@ Local mock mode (no chain calls):
 
 - Set `REWARDS_MODE=mock` to exercise quote/claim UI and DB state transitions without requiring VeBetterDAO or sponsor configuration.
 
+## Production Deployment Notes (Supabase + Vercel)
+
+Backend:
+- Recommended: Supabase Edge Function `supabase/functions/api` as the single backend entrypoint for web.
+- Configure secrets in Supabase (Edge Functions reserve `SUPABASE_*` env var names):
+  - DB: `BB_SUPABASE_URL`, `BB_SUPABASE_SERVICE_ROLE_KEY`
+  - Rewards: the env vars listed above (`VEBETTER_APP_ID`, `X2EARN_REWARDS_POOL_ADDRESS`, `FEE_DELEGATION_URL`, `REWARD_DISTRIBUTOR_PRIVATE_KEY`, etc.)
+- For easy frontend domain changes, keep `CORS_ORIGIN='*'` (default).
+
+Frontend:
+- Vercel env var: `VITE_API_URL=https://<project>.supabase.co/functions/v1/api`
+- If the Vercel domain changes, only `VITE_API_URL` (and optionally `CORS_ORIGIN` if not `*`) needs updating.
+
 ## Verification (Engineering)
 
 Automated:

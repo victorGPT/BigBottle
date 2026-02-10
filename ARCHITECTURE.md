@@ -247,8 +247,7 @@ On `rejected`, backend best-effort deletes the receipt image from S3.
 
 File: `supabase/functions/api/index.ts`
 - Deno runtime Edge Function
-- Mirrors a subset of the local Fastify routes under `apps/api` (Phase 1)
-- Phase 2 rewards claim routes currently live in `apps/api` only
+- Mirrors the local Fastify routes under `apps/api` for Phase 1 and Phase 2
 - Uses its own JWT (`JWT_SECRET`) and does not rely on Supabase Auth
 
 Config:
@@ -256,6 +255,15 @@ Config:
 - Edge env vars reserve `SUPABASE_*`, so Supabase credentials are:
   - `BB_SUPABASE_URL`
   - `BB_SUPABASE_SERVICE_ROLE_KEY`
+- For easy frontend domain changes, keep `CORS_ORIGIN='*'` (default).
+- Phase 2 rewards env vars (same semantics as `apps/api`):
+  - `REWARDS_MODE`
+  - `VECHAIN_NETWORK`
+  - `VECHAIN_NODE_URL`
+  - `VEBETTER_APP_ID`
+  - `X2EARN_REWARDS_POOL_ADDRESS`
+  - `FEE_DELEGATION_URL`
+  - `REWARD_DISTRIBUTOR_PRIVATE_KEY`
 
 ## Database (Supabase Postgres)
 
