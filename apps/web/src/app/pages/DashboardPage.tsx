@@ -85,7 +85,7 @@ export default function DashboardPage() {
             <div className="text-[11px] tracking-[0.22em] text-emerald-300">POINTS</div>
           </div>
           <div className="mt-2 text-[11px] text-white/45">
-            代币兑换与领取在 Phase 2 上链后开放
+            去 Rewards 页面领取 B3TR（系统代付 Gas）
           </div>
         </div>
 
