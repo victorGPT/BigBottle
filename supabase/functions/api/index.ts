@@ -693,7 +693,8 @@ function computeTotalPoints(drinkList: unknown): { totalPoints: number } {
 
 // --- Rewards (Phase 2) ---
 const DISTRIBUTE_REWARD_ABI = [
-  'function distributeRewardWithProofAndMetadata(bytes32 appId,uint256 amount,address receiver,string[] proofTypes,string[] proofValues,string[] impactCodes,uint256[] impactValues,string description,string rewardMetadata) returns (uint256)'
+  // Current VeBetter testnet rewards pool supports the deprecated entrypoint.
+  'function distributeRewardDeprecated(bytes32 appId,uint256 amount,address receiver,string rewardMetadata)'
 ];
 
 const distributeIface = new Interface(DISTRIBUTE_REWARD_ABI);
@@ -859,21 +860,17 @@ function createRewardsChain(config: AppConfig): RewardsChain {
       const receiver = getAddress(input.receiver);
       if (input.amountWei <= 0n) throw new Error('amount_invalid');
 
-      const proofTypes = ['text'];
-      const proofValues = [`bb:v1:claim:${input.claimId}`];
-      const impactCodes: string[] = [];
-      const impactValues: bigint[] = [];
+      const rewardMetadata = JSON.stringify({
+        claimId: input.claimId,
+        description: input.description,
+        payload: input.rewardMetadata
+      });
 
-      const data = distributeIface.encodeFunctionData('distributeRewardWithProofAndMetadata', [
+      const data = distributeIface.encodeFunctionData('distributeRewardDeprecated', [
         ctx.cfg.appId,
         input.amountWei,
         receiver,
-        proofTypes,
-        proofValues,
-        impactCodes,
-        impactValues,
-        input.description,
-        input.rewardMetadata
+        rewardMetadata
       ]);
 
       const rawTx = await ctx.signer!.signTransaction({

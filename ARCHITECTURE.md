@@ -368,7 +368,7 @@ VeWorld wallet:
 - iOS in-app browser stability: avoid back-to-back signing; wait before typed-data request and pass `{ signer: address }`.
 
 VeChain / VeBetterDAO (Phase 2 rewards):
-- Token distribution uses `X2EarnRewardsPool.distributeRewardWithProofAndMetadata(...)`.
+- Token distribution uses `X2EarnRewardsPool.distributeRewardDeprecated(...)` on current testnet rewards pool (`X2EARN_REWARDS_POOL_ADDRESS=0x5F8f86B8D0Fa93cdaE20936d150175dF0205fB38`).
 - Gasless claim uses delegated transactions (VIP-191) with a VIP-201 sponsor service URL.
 - Backend is the transaction origin (holds `REWARD_DISTRIBUTOR_PRIVATE_KEY`); users do not sign claim txs.
 
