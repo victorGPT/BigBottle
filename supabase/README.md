@@ -8,12 +8,16 @@ This folder contains SQL migrations for the MVP database schema.
 2. Run migrations in order:
    - `supabase/migrations/20260206_init.sql`
    - `supabase/migrations/20260208_receipt_dedup.sql`
+   - `supabase/migrations/20260218_z_account_summary.sql`
+   - `supabase/migrations/20260217_vote_mapping_and_bonus.sql`
 
 ## Tables
 
 - `public.users`
 - `public.auth_challenges`
 - `public.receipt_submissions`
+- `public.vote_wallet_mapping`
+- `public.bigbottle_vote_bonus_eligibility`
 
 ## Edge Functions (API)
 
