@@ -211,16 +211,6 @@ export default function AccountPage() {
           ))}
         </div>
 
-        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-white/10" />
-            <div className="flex-1">
-              <div className="text-sm font-medium">Connect X Account</div>
-              <div className="mt-0.5 text-xs text-white/50">绑定后可领取更多奖励</div>
-            </div>
-            <div className="text-white/30">{'>'}</div>
-          </div>
-        </div>
 
         <div className="mt-auto">
           {isLoggedIn ? (
