@@ -38,6 +38,22 @@ export type DbReceiptSubmission = {
   updated_at: string;
 };
 
+export type DbVoteBonusEligibility = {
+  id: number;
+  effective_round_id: number;
+  source_round_id: number;
+  passport_address: string;
+  user_id: string | null;
+  bonus_type: string;
+  bonus_multiplier: number;
+  status: string;
+  source: string;
+  computed_at: string;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 function ensureOk<T>(
   res: { data: T; error: unknown | null },
   message: string
@@ -183,6 +199,27 @@ export function createRepo(supabase: SupabaseClient) {
       const res = await supabase.rpc('bb_user_points_total', { user_id: userId });
       const data = ensureOk(res, 'Failed to compute user points total');
       return typeof data === 'number' && Number.isFinite(data) ? data : 0;
+    },
+
+    async getLatestUserBonusEligibility(input: {
+      user_id: string;
+      wallet_address: string;
+      bonus_type: string;
+    }): Promise<DbVoteBonusEligibility | null> {
+      const walletLower = input.wallet_address.trim().toLowerCase();
+      const orFilter = `user_id.eq.${input.user_id},passport_address.eq.${walletLower}`;
+      const res = await supabase
+        .from('bigbottle_vote_bonus_eligibility')
+        .select('*')
+        .eq('bonus_type', input.bonus_type)
+        .eq('status', 'eligible')
+        .or(orFilter)
+        .order('effective_round_id', { ascending: false })
+        .order('computed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch user bonus eligibility');
+      return (data as DbVoteBonusEligibility) ?? null;
     },
 
     async getVerifiedSubmissionByFingerprint(fingerprint: string): Promise<Pick<DbReceiptSubmission, 'id' | 'user_id' | 'created_at'> | null> {

@@ -55,6 +55,12 @@ function requireAuth() {
   };
 }
 
+function toSafeMultiplier(value: unknown, fallback = 1): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1, n);
+}
+
 async function main() {
   const config = loadConfig();
   const supabase = createSupabaseAdmin(config);
@@ -184,6 +190,45 @@ async function main() {
     const { sub: userId } = (request as AuthedRequest).user;
     const pointsTotal = await repo.getUserPointsTotal(userId);
     return reply.send({ summary: { points_total: pointsTotal, level: null } });
+  });
+
+  app.get('/account/achievements', { preHandler: authenticate }, async (request: any, reply) => {
+    const { sub: userId, wallet } = (request as AuthedRequest).user;
+
+    const vebetterVote = await repo.getLatestUserBonusEligibility({
+      user_id: userId,
+      wallet_address: wallet,
+      bonus_type: 'vebetter_vote_bonus'
+    });
+
+    const unlocked = Boolean(vebetterVote);
+    const multiplier = unlocked ? toSafeMultiplier(vebetterVote?.bonus_multiplier, 1) : 1;
+
+    const achievements = [
+      {
+        key: 'vebetter_vote_bonus',
+        title: 'VeBetterDAO Voter',
+        description: '在 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。',
+        badge: 'governance',
+        unlocked,
+        multiplier,
+        status: unlocked ? vebetterVote?.status ?? 'eligible' : 'locked',
+        effective_round_id: unlocked ? (vebetterVote?.effective_round_id ?? null) : null,
+        source_round_id: unlocked ? (vebetterVote?.source_round_id ?? null) : null
+      }
+    ];
+
+    const totalMultiplier = achievements.reduce((acc, item) => acc * (item.unlocked ? item.multiplier : 1), 1);
+    const unlockedCount = achievements.filter((item) => item.unlocked).length;
+
+    return reply.send({
+      achievements,
+      summary: {
+        unlocked_count: unlockedCount,
+        total_count: achievements.length,
+        total_multiplier: Number(totalMultiplier.toFixed(4))
+      }
+    });
   });
 
   // --- Submissions ---
