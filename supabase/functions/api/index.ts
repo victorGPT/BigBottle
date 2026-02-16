@@ -362,9 +362,13 @@ function createRepo(supabase: SupabaseClient) {
   };
 }
 
+const DEFAULT_CHAIN_ID = 100010;
+const LOGIN_CHAIN_ID = Number.parseInt(Deno.env.get("VECHAIN_CHAIN_ID") ?? "", 10) || DEFAULT_CHAIN_ID;
+
 const LOGIN_DOMAIN = Object.freeze({
   name: 'BigBottle',
-  version: '1'
+  version: '1',
+  chainId: LOGIN_CHAIN_ID
 });
 
 const LOGIN_TYPES = Object.freeze({
