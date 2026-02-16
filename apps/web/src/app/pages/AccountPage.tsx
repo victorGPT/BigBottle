@@ -118,12 +118,25 @@ export default function AccountPage() {
       await new Promise((resolve) => window.setTimeout(resolve, 450));
 
       const challenge = await apiPost<ChallengeResponse>('/auth/challenge', { address: addr }, null);
-      const sig = await requestTypedData(
-        challenge.typed_data.domain,
-        challenge.typed_data.types,
-        challenge.typed_data.value,
-        { signer: addr }
-      );
+
+      const signTypedData = async (domain: Record<string, unknown>) =>
+        requestTypedData(domain, challenge.typed_data.types, challenge.typed_data.value, {
+          signer: addr
+        });
+
+      let sig: string;
+      try {
+        sig = await signTypedData(challenge.typed_data.domain);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const hasChainId = Object.prototype.hasOwnProperty.call(challenge.typed_data.domain, 'chainId');
+        const shouldRetryWithoutChainId = hasChainId && msg.toLowerCase().includes('invalid signed data message');
+
+        if (!shouldRetryWithoutChainId) throw e;
+
+        const { chainId: _unused, ...domainWithoutChainId } = challenge.typed_data.domain;
+        sig = await signTypedData(domainWithoutChainId);
+      }
 
       const verify = await apiPost<VerifyResponse>(
         '/auth/verify',
