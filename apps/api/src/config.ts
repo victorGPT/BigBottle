@@ -17,6 +17,10 @@ const EnvSchema = z
     AWS_REGION: z.string().min(1),
     S3_BUCKET: z.string().min(1),
     S3_PRESIGN_EXPIRES_SECONDS: z.coerce.number().int().positive().default(300),
+    VEBETTER_CURRENT_EFFECTIVE_ROUND_ID: z.preprocess(
+      emptyToUndefined,
+      z.coerce.number().int().positive().optional()
+    ),
 
     DIFY_MODE: z.enum(['mock', 'workflow']).default('workflow'),
     DIFY_API_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),

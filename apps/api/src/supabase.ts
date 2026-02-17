@@ -205,15 +205,21 @@ export function createRepo(supabase: SupabaseClient) {
       user_id: string;
       wallet_address: string;
       bonus_type: string;
+      effective_round_id?: number;
     }): Promise<DbVoteBonusEligibility | null> {
       const walletLower = input.wallet_address.trim().toLowerCase();
       const orFilter = `user_id.eq.${input.user_id},passport_address.eq.${walletLower}`;
-      const res = await supabase
+      const query = supabase
         .from('bigbottle_vote_bonus_eligibility')
         .select('*')
         .eq('bonus_type', input.bonus_type)
         .eq('status', 'eligible')
-        .or(orFilter)
+        .or(orFilter);
+      const filteredQuery =
+        input.effective_round_id === undefined
+          ? query
+          : query.eq('effective_round_id', input.effective_round_id);
+      const res = await filteredQuery
         .order('effective_round_id', { ascending: false })
         .order('computed_at', { ascending: false })
         .limit(1)

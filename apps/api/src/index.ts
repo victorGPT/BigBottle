@@ -43,6 +43,9 @@ const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
 ]);
 
 const SubmissionIdParams = z.object({ id: z.string().uuid() });
+const AccountAchievementsQuery = z.object({
+  effective_round_id: z.coerce.number().int().positive().optional()
+});
 
 function requireAuth() {
   return async function authenticate(request: any, reply: any) {
@@ -194,12 +197,22 @@ async function main() {
 
   app.get('/account/achievements', { preHandler: authenticate }, async (request: any, reply) => {
     const { sub: userId, wallet } = (request as AuthedRequest).user;
+    const parsedQuery = AccountAchievementsQuery.safeParse(request.query ?? {});
+    if (!parsedQuery.success) return reply.code(400).send({ error: 'invalid_query' });
 
-    const vebetterVote = await repo.getLatestUserBonusEligibility({
+    const targetEffectiveRoundId =
+      parsedQuery.data.effective_round_id ?? config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID;
+
+    const voteEligibilityInput = {
       user_id: userId,
       wallet_address: wallet,
-      bonus_type: 'vebetter_vote_bonus'
-    });
+      bonus_type: 'vebetter_vote_bonus',
+      ...(targetEffectiveRoundId === undefined
+        ? {}
+        : { effective_round_id: targetEffectiveRoundId })
+    };
+
+    const vebetterVote = await repo.getLatestUserBonusEligibility(voteEligibilityInput);
 
     const unlocked = Boolean(vebetterVote);
     const multiplier = unlocked ? toSafeMultiplier(vebetterVote?.bonus_multiplier, 1) : 1;
