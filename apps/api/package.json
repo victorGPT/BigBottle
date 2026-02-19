@@ -16,6 +16,8 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/jwt": "^10.0.0",
     "@supabase/supabase-js": "^2.57.4",
+    "@vechain/sdk-core": "^2.0.7",
+    "@vechain/sdk-network": "^2.0.7",
     "dotenv": "^16.6.1",
     "ethers": "^6.15.0",
     "fastify": "^5.7.4",

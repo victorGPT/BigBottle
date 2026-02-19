@@ -13,3 +13,5 @@ pnpm-debug.log*
 *.log
 .logs/
 supabase/.temp/
+.vercel
+.env*.local

@@ -9,11 +9,14 @@ import { getAddress } from 'ethers';
 import './types.js';
 import { loadConfig } from './config.js';
 import { buildLoginTypedData, verifyLoginSignature } from './auth.js';
-import { createRepo, createSupabaseAdmin } from './supabase.js';
+import { createRepo, createSupabaseAdmin, type DbRewardClaim } from './supabase.js';
 import { computeTotalPoints } from './scoring.js';
 import { createS3Client, deleteObject, headObject, presignGetObject, presignPutObject } from './s3.js';
 import { extractDifyReceiptPayload, runDify } from './dify.js';
 import { isUniqueViolation } from './postgres-errors.js';
+import { createOrGetRewardClaimAndSubmit, getRewardsQuote, listRewardClaims, refreshRewardClaimStatus } from './rewards-service.js';
+import { createRewardsChain } from './vebetterRewards.js';
+import { formatB3trDisplay } from './rewards.js';
 
 type AuthedRequest = {
   user: { sub: string; wallet: string };
@@ -32,6 +35,27 @@ function normalizeBoolString(input: string): string {
   return input.trim().toLowerCase();
 }
 
+function formatRewardClaimForApi(claim: DbRewardClaim) {
+  return {
+    id: claim.id,
+    client_claim_id: claim.client_claim_id,
+    wallet_address: claim.wallet_address,
+
+    conversion_rate_id: claim.conversion_rate_id,
+    points_per_b3tr_snapshot: claim.points_per_b3tr_snapshot,
+    points_claimed: claim.points_claimed,
+    b3tr_amount_wei: claim.b3tr_amount_wei,
+    b3tr_amount: formatB3trDisplay(BigInt(claim.b3tr_amount_wei)),
+
+    status: claim.status,
+    tx_hash: claim.tx_hash,
+    failure_reason: claim.failure_reason,
+
+    created_at: claim.created_at,
+    updated_at: claim.updated_at
+  };
+}
+
 const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -43,6 +67,11 @@ const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
 ]);
 
 const SubmissionIdParams = z.object({ id: z.string().uuid() });
+const RewardClaimIdParams = z.object({ id: z.string().uuid() });
+const RewardClaimBody = z.object({ client_claim_id: z.string().uuid() });
+const RewardClaimsQuery = z.object({
+  limit: z.coerce.number().int().positive().max(100).default(20)
+});
 
 function requireAuth() {
   return async function authenticate(request: any, reply: any) {
@@ -60,6 +89,7 @@ async function main() {
   const supabase = createSupabaseAdmin(config);
   const repo = createRepo(supabase);
   const s3 = createS3Client(config);
+  const rewardsChain = createRewardsChain(config);
 
   const app = Fastify({
     logger: true
@@ -184,6 +214,73 @@ async function main() {
     const { sub: userId } = (request as AuthedRequest).user;
     const pointsTotal = await repo.getUserPointsTotal(userId);
     return reply.send({ summary: { points_total: pointsTotal, level: null } });
+  });
+
+  // --- Rewards (Phase 2) ---
+  app.get('/rewards/quote', { preHandler: authenticate }, async (request: any, reply) => {
+    const { sub: userId } = (request as AuthedRequest).user;
+    try {
+      const quote = await getRewardsQuote(repo as any, userId);
+      return reply.send({ quote });
+    } catch (err) {
+      const code = err instanceof Error ? err.message : null;
+      if (code === 'rewards_unconfigured') return reply.code(503).send({ error: 'rewards_unconfigured' });
+      request.log.error({ err }, 'rewards_quote_failed');
+      return reply.code(500).send({ error: 'internal_error' });
+    }
+  });
+
+  app.post('/rewards/claim', { preHandler: authenticate }, async (request: any, reply) => {
+    const parsed = RewardClaimBody.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
+
+    const { sub: userId, wallet: walletAddressLower } = (request as AuthedRequest).user;
+
+    try {
+      const claim = await createOrGetRewardClaimAndSubmit({
+        repo: repo as any,
+        chain: rewardsChain,
+        userId,
+        walletAddressLower,
+        clientClaimId: parsed.data.client_claim_id,
+        isUniqueViolation
+      });
+      return reply.send({ claim: formatRewardClaimForApi(claim) });
+    } catch (err) {
+      const code = err instanceof Error ? err.message : null;
+      if (code === 'rewards_unconfigured') return reply.code(503).send({ error: 'rewards_unconfigured' });
+      if (code === 'no_claimable_points' || code === 'no_claimable_amount' || code === 'amount_invalid') {
+        return reply.code(400).send({ error: code });
+      }
+      request.log.error({ err }, 'rewards_claim_failed');
+      return reply.code(500).send({ error: 'internal_error' });
+    }
+  });
+
+  app.get('/rewards/claims', { preHandler: authenticate }, async (request: any, reply) => {
+    const { sub: userId } = (request as AuthedRequest).user;
+    const parsed = RewardClaimsQuery.safeParse((request as any).query ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_query' });
+    const claims = await listRewardClaims(repo as any, userId, parsed.data.limit);
+    return reply.send({ claims: claims.map(formatRewardClaimForApi) });
+  });
+
+  app.get('/rewards/claims/:id', { preHandler: authenticate }, async (request: any, reply) => {
+    const { sub: userId } = (request as AuthedRequest).user;
+    const parsedParams = RewardClaimIdParams.safeParse(request.params);
+    if (!parsedParams.success) return reply.code(400).send({ error: 'invalid_params' });
+
+    const claim = await repo.getRewardClaimById(parsedParams.data.id);
+    if (!claim || claim.user_id !== userId) return reply.code(404).send({ error: 'not_found' });
+
+    try {
+      const refreshed = await refreshRewardClaimStatus(repo as any, rewardsChain, claim);
+      return reply.send({ claim: formatRewardClaimForApi(refreshed) });
+    } catch (err) {
+      // Receipt polling should never block the UI; return the current claim state.
+      request.log.warn({ err, claimId: claim.id, txHash: claim.tx_hash }, 'rewards_claim_refresh_failed');
+      return reply.send({ claim: formatRewardClaimForApi(claim) });
+    }
   });
 
   // --- Submissions ---
