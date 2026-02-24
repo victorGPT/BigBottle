@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       effective_round_id:
-        description: Optional positive integer as string. If empty, resolve automatically from DB.
+        description: Optional positive integer as string. If empty, auto-resolve from chain current round, then fallback to repo variable / DB.
         required: false
         type: string
   schedule:
@@ -19,6 +19,7 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
       DEFAULT_EFFECTIVE_ROUND_ID: ${{ vars.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID || '' }}
+      ROUND_SOURCE_SUBGRAPH_URL: ${{ vars.VEBETTER_ROUND_SOURCE_SUBGRAPH_URL || 'https://graph.vet/subgraphs/name/vebetter/dao' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,16 +45,32 @@ jobs:
           if [[ -n "${INPUT_EFFECTIVE_ROUND_ID}" ]]; then
             resolved_round_id="${INPUT_EFFECTIVE_ROUND_ID}"
             echo "Using provided effective_round_id=${resolved_round_id}"
-          elif [[ -n "${DEFAULT_EFFECTIVE_ROUND_ID}" ]]; then
-            resolved_round_id="${DEFAULT_EFFECTIVE_ROUND_ID}"
-            echo "Using repo variable VEBETTER_CURRENT_EFFECTIVE_ROUND_ID=${resolved_round_id}"
           else
-            resolved_round_id="$(psql -X "${DATABASE_URL}" -v ON_ERROR_STOP=1 -Atqc "with maxes as (select coalesce((select max(effective_round_id) from public.bigbottle_vote_bonus_eligibility where bonus_type='vebetter_vote_bonus'),0) as max_effective_round, coalesce((select max(round_id) from public.vote_wallet_mapping where voted_any_app=true),0) as max_source_round) select case when max_source_round > 0 then greatest(max_effective_round, max_source_round + 1) else max_effective_round end from maxes;")"
-            echo "Auto-resolved effective_round_id=${resolved_round_id}"
+            chain_current_round=""
+            if [[ -n "${ROUND_SOURCE_SUBGRAPH_URL:-}" ]]; then
+              chain_current_round="$(
+                curl -fsS "${ROUND_SOURCE_SUBGRAPH_URL}" \
+                  -H 'content-type: application/json' \
+                  --data '{"query":"{ rounds(first:1, orderBy:number, orderDirection:desc){ number } }"}' \
+                  | jq -r '.data.rounds[0].number // empty' \
+                  || true
+              )"
+            fi
+
+            if [[ "${chain_current_round}" =~ ^[1-9][0-9]*$ ]]; then
+              resolved_round_id="${chain_current_round}"
+              echo "Auto-resolved effective_round_id=${resolved_round_id} from subgraph ${ROUND_SOURCE_SUBGRAPH_URL}"
+            elif [[ -n "${DEFAULT_EFFECTIVE_ROUND_ID}" ]]; then
+              resolved_round_id="${DEFAULT_EFFECTIVE_ROUND_ID}"
+              echo "Subgraph resolve unavailable/invalid ('${chain_current_round}'); fallback to repo variable VEBETTER_CURRENT_EFFECTIVE_ROUND_ID=${resolved_round_id}"
+            else
+              resolved_round_id="$(psql -X "${DATABASE_URL}" -v ON_ERROR_STOP=1 -Atqc "with maxes as (select coalesce((select max(effective_round_id) from public.bigbottle_vote_bonus_eligibility where bonus_type='vebetter_vote_bonus'),0) as max_effective_round, coalesce((select max(round_id) from public.vote_wallet_mapping where voted_any_app=true),0) as max_source_round) select case when max_source_round > 0 then greatest(max_effective_round, max_source_round + 1) else max_effective_round end from maxes;")"
+              echo "Subgraph/variable unavailable; DB-resolved effective_round_id=${resolved_round_id}"
+            fi
           fi
 
           if ! [[ "${resolved_round_id}" =~ ^[1-9][0-9]*$ ]]; then
-            echo "Failed to resolve a positive effective_round_id (got '${resolved_round_id}'). Set repo variable VEBETTER_CURRENT_EFFECTIVE_ROUND_ID (e.g. 87) or re-run workflow_dispatch with effective_round_id." >&2
+            echo "Failed to resolve a positive effective_round_id (got '${resolved_round_id}'). Provide workflow input effective_round_id, or set VEBETTER_ROUND_SOURCE_SUBGRAPH_URL / VEBETTER_CURRENT_EFFECTIVE_ROUND_ID." >&2
             exit 1
           fi
 
