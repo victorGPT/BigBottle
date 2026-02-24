@@ -39,5 +39,24 @@ describe('loadConfig', () => {
       })
     ).toThrow();
   });
-});
 
+  it('parses optional current effective round id when positive integer', () => {
+    const cfg = loadConfig({
+      ...baseEnv(),
+      DIFY_MODE: 'mock',
+      VEBETTER_CURRENT_EFFECTIVE_ROUND_ID: '12'
+    });
+
+    expect(cfg.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID).toBe(12);
+  });
+
+  it('rejects invalid current effective round id', () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        DIFY_MODE: 'mock',
+        VEBETTER_CURRENT_EFFECTIVE_ROUND_ID: '0'
+      })
+    ).toThrow();
+  });
+});
