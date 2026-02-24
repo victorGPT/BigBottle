@@ -1,17 +1,13 @@
 name: Vote Eligibility Audit
 
-"on":
+on:
   pull_request:
     branches:
       - main
   workflow_dispatch:
     inputs:
       effective_round_id:
-        description: Optional positive integer. If set, takes highest priority.
-        required: false
-        type: string
-      source_round_id:
-        description: Optional positive integer. If set, effective_round_id = source_round_id + 1.
+        description: Optional positive integer as string. If empty, resolve automatically from DB.
         required: false
         type: string
   schedule:
@@ -34,6 +30,8 @@ jobs:
 
       - name: Resolve effective round id
         id: resolve_round
+        env:
+          INPUT_EFFECTIVE_ROUND_ID: ${{ github.event.inputs.effective_round_id || '' }}
         run: |
           set -euo pipefail
 
@@ -42,40 +40,16 @@ jobs:
             exit 1
           fi
 
-          INPUT_EFFECTIVE_ROUND_ID="$(jq -r '.inputs.effective_round_id // empty' "${GITHUB_EVENT_PATH}")"
-          INPUT_SOURCE_ROUND_ID="$(jq -r '.inputs.source_round_id // empty' "${GITHUB_EVENT_PATH}")"
-
           if [[ -n "${INPUT_EFFECTIVE_ROUND_ID}" ]]; then
             resolved_round_id="${INPUT_EFFECTIVE_ROUND_ID}"
             echo "Using provided effective_round_id=${resolved_round_id}"
-          elif [[ -n "${INPUT_SOURCE_ROUND_ID}" ]]; then
-            if ! [[ "${INPUT_SOURCE_ROUND_ID}" =~ ^[1-9][0-9]*$ ]]; then
-              echo "source_round_id must be a positive integer. Got '${INPUT_SOURCE_ROUND_ID}'." >&2
-              exit 1
-            fi
-            resolved_round_id="$((INPUT_SOURCE_ROUND_ID + 1))"
-            echo "Using source_round_id=${INPUT_SOURCE_ROUND_ID}, derived effective_round_id=${resolved_round_id}"
           else
-            resolved_round_id="$(psql -X "${DATABASE_URL}" -v ON_ERROR_STOP=1 -Atqc "
-with src as (
-  select coalesce(max(round_id), 0) as max_source_round
-  from public.vote_wallet_mapping
-  where voted_any_app = true
-), elig as (
-  select coalesce(max(effective_round_id), 0) as max_effective_round
-  from public.bigbottle_vote_bonus_eligibility
-  where bonus_type = 'vebetter_vote_bonus'
-)
-select case
-  when (select max_source_round from src) > 0
-    then greatest((select max_source_round from src) + 1, (select max_effective_round from elig))
-  else (select max_effective_round from elig)
-end;")"
+            resolved_round_id="$(psql -X "${DATABASE_URL}" -v ON_ERROR_STOP=1 -Atqc "with maxes as (select coalesce((select max(effective_round_id) from public.bigbottle_vote_bonus_eligibility where bonus_type='vebetter_vote_bonus'),0) as max_effective_round, coalesce((select max(round_id) from public.vote_wallet_mapping where voted_any_app=true),0) as max_source_round) select case when max_source_round > 0 then greatest(max_effective_round, max_source_round + 1) else max_effective_round end from maxes;")"
             echo "Auto-resolved effective_round_id=${resolved_round_id}"
           fi
 
           if ! [[ "${resolved_round_id}" =~ ^[1-9][0-9]*$ ]]; then
-            echo "Failed to resolve a positive effective_round_id (got '${resolved_round_id}'). Re-run workflow_dispatch and provide effective_round_id or source_round_id." >&2
+            echo "Failed to resolve a positive effective_round_id (got '${resolved_round_id}'). Re-run workflow_dispatch and provide input effective_round_id." >&2
             exit 1
           fi
 
