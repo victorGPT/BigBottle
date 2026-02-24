@@ -1,0 +1,63 @@
+name: VeBetter Node Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      snapshot_date:
+        description: Optional YYYY-MM-DD. Defaults to current UTC date.
+        required: false
+        type: string
+      dry_run:
+        description: If true, fetch + diff only (no DB writes).
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "20 0 * * *"
+
+concurrency:
+  group: vebetter-node-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      VEBETTER_DAO_SUBGRAPH_URL: ${{ vars.VEBETTER_DAO_SUBGRAPH_URL || 'https://graph.vet/subgraphs/name/vebetter/dao' }}
+      SNAPSHOT_DATE: ${{ github.event.inputs.snapshot_date || '' }}
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.22.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          if [[ -z "${SUPABASE_URL:-}" ]]; then
+            echo "SUPABASE_URL is empty. Please set repository secret SUPABASE_URL." >&2
+            exit 1
+          fi
+          if [[ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY is empty. Please set repository secret SUPABASE_SERVICE_ROLE_KEY." >&2
+            exit 1
+          fi
+
+      - name: Run VeBetter node sync
+        run: pnpm -C apps/api run sync:vebetter-nodes
