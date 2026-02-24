@@ -33,13 +33,13 @@ mismatch_count="$(
 with expected as (
   select distinct passport_address
   from public.vote_wallet_mapping
-  where round_id = (:'effective_round_id'::bigint - 1)
+  where round_id = ((:effective_round_id)::bigint - 1)
     and voted_any_app = true
 ),
 actual as (
   select distinct passport_address
   from public.bigbottle_vote_bonus_eligibility
-  where effective_round_id = :'effective_round_id'::bigint
+  where effective_round_id = (:effective_round_id)::bigint
     and bonus_type = 'vebetter_vote_bonus'
     and status = 'eligible'
 )
