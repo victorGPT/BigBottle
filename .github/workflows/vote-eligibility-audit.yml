@@ -34,9 +34,6 @@ jobs:
 
       - name: Resolve effective round id
         id: resolve_round
-        env:
-          INPUT_EFFECTIVE_ROUND_ID: ${{ github.event.inputs.effective_round_id || '' }}
-          INPUT_SOURCE_ROUND_ID: ${{ github.event.inputs.source_round_id || '' }}
         run: |
           set -euo pipefail
 
@@ -44,6 +41,9 @@ jobs:
             echo "DATABASE_URL is empty. Please set repository secret SUPABASE_DB_URL." >&2
             exit 1
           fi
+
+          INPUT_EFFECTIVE_ROUND_ID="$(jq -r '.inputs.effective_round_id // empty' "${GITHUB_EVENT_PATH}")"
+          INPUT_SOURCE_ROUND_ID="$(jq -r '.inputs.source_round_id // empty' "${GITHUB_EVENT_PATH}")"
 
           if [[ -n "${INPUT_EFFECTIVE_ROUND_ID}" ]]; then
             resolved_round_id="${INPUT_EFFECTIVE_ROUND_ID}"
