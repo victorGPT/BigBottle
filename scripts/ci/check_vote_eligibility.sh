@@ -28,18 +28,17 @@ fi
 mismatch_count="$(
   psql -X "${DATABASE_URL}" \
     -v ON_ERROR_STOP=1 \
-    -v effective_round_id="${EFFECTIVE_ROUND_ID}" \
     -Atqc "
 with expected as (
   select distinct passport_address
   from public.vote_wallet_mapping
-  where round_id = ((:effective_round_id)::bigint - 1)
+  where round_id = (${EFFECTIVE_ROUND_ID}::bigint - 1)
     and voted_any_app = true
 ),
 actual as (
   select distinct passport_address
   from public.bigbottle_vote_bonus_eligibility
-  where effective_round_id = (:effective_round_id)::bigint
+  where effective_round_id = ${EFFECTIVE_ROUND_ID}::bigint
     and bonus_type = 'vebetter_vote_bonus'
     and status = 'eligible'
 )
@@ -68,10 +67,8 @@ if [[ "${mismatch_count}" -gt 0 ]]; then
   echo "Vote eligibility mismatch detected for EFFECTIVE_ROUND_ID=${EFFECTIVE_ROUND_ID}."
   echo "Mismatch count: ${mismatch_count}"
   echo "Mismatch details:"
-  psql -X "${DATABASE_URL}" \
-    -v ON_ERROR_STOP=1 \
-    -v effective_round_id="${EFFECTIVE_ROUND_ID}" \
-    -f "${diff_sql}"
+  sed "s/__EFFECTIVE_ROUND_ID__/${EFFECTIVE_ROUND_ID}/g" "${diff_sql}" \
+    | psql -X "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f -
 
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
