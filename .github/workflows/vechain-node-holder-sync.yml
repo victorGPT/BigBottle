@@ -1,0 +1,76 @@
+name: VeChain Node Holder Daily Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      snapshot_date:
+        description: Optional snapshot date (YYYY-MM-DD). Default uses current UTC date.
+        required: false
+        type: string
+      max_legacy_token_id:
+        description: Optional cap for legacy token_id scan (0 means all).
+        required: false
+        type: string
+      max_stargate_items:
+        description: Optional cap for stargate token index scan (0 means all).
+        required: false
+        type: string
+  schedule:
+    # 02:00 JST daily
+    - cron: "0 17 * * *"
+
+jobs:
+  sync-vechain-node-holders:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+      VECHAIN_NODE_CALL_API_BASE: ${{ vars.VECHAIN_NODE_CALL_API_BASE || 'https://call.api.vechain.energy/main' }}
+      VECHAIN_NODE_LEGACY_CONTRACT_ADDRESS: ${{ vars.VECHAIN_NODE_LEGACY_CONTRACT_ADDRESS || '0xb81e9c5f9644dec9e5e3cac86b4461a222072302' }}
+      VECHAIN_NODE_STARGATE_NFT_CONTRACT_ADDRESS: ${{ vars.VECHAIN_NODE_STARGATE_NFT_CONTRACT_ADDRESS || '0x1856c533ac2d94340aaa8544d35a5c1d4a21dee7' }}
+      VECHAIN_NODE_SYNC_RPS: ${{ vars.VECHAIN_NODE_SYNC_RPS || '3' }}
+      VECHAIN_NODE_MAX_RETRIES: ${{ vars.VECHAIN_NODE_MAX_RETRIES || '5' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install postgresql-client
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Sync VeChain node holder snapshot
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${DATABASE_URL:-}" ]]; then
+            echo "DATABASE_URL is empty. Please set repository secret SUPABASE_DB_URL." >&2
+            exit 1
+          fi
+
+          args=(
+            --database-url "${DATABASE_URL}"
+            --api-base "${VECHAIN_NODE_CALL_API_BASE}"
+            --legacy-contract-address "${VECHAIN_NODE_LEGACY_CONTRACT_ADDRESS}"
+            --stargate-nft-contract-address "${VECHAIN_NODE_STARGATE_NFT_CONTRACT_ADDRESS}"
+            --rps "${VECHAIN_NODE_SYNC_RPS}"
+            --max-retries "${VECHAIN_NODE_MAX_RETRIES}"
+          )
+
+          input_snapshot_date="${{ github.event.inputs.snapshot_date || '' }}"
+          input_max_legacy_token_id="${{ github.event.inputs.max_legacy_token_id || '' }}"
+          input_max_stargate_items="${{ github.event.inputs.max_stargate_items || '' }}"
+
+          if [[ -n "${input_snapshot_date}" ]]; then
+            args+=(--snapshot-date "${input_snapshot_date}")
+          fi
+
+          if [[ -n "${input_max_legacy_token_id}" ]]; then
+            args+=(--max-legacy-token-id "${input_max_legacy_token_id}")
+          fi
+
+          if [[ -n "${input_max_stargate_items}" ]]; then
+            args+=(--max-stargate-items "${input_max_stargate_items}")
+          fi
+
+          python3 scripts/ci/sync_vechain_node_holders.py "${args[@]}"

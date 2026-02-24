@@ -507,9 +507,13 @@ function createRepo(supabase: SupabaseClient) {
   };
 }
 
+const DEFAULT_CHAIN_ID = 100010;
+const LOGIN_CHAIN_ID = Number.parseInt(Deno.env.get("VECHAIN_CHAIN_ID") ?? "", 10) || DEFAULT_CHAIN_ID;
+
 const LOGIN_DOMAIN = Object.freeze({
   name: 'BigBottle',
-  version: '1'
+  version: '1',
+  chainId: LOGIN_CHAIN_ID
 });
 
 const LOGIN_TYPES = Object.freeze({
@@ -540,13 +544,38 @@ function verifyLoginSignature(params: {
   signature: string;
 }): boolean {
   const wallet = getAddress(params.walletAddress);
-  const typedData = buildLoginTypedData({
+
+  const typedDataWithChainId = buildLoginTypedData({
     walletAddress: wallet,
     challengeId: params.challengeId,
     nonce: params.nonce
   });
-  const recovered = verifyTypedData(typedData.domain, typedData.types, typedData.value, params.signature);
-  return getAddress(recovered) === wallet;
+
+  try {
+    const recovered = verifyTypedData(
+      typedDataWithChainId.domain,
+      typedDataWithChainId.types,
+      typedDataWithChainId.value,
+      params.signature
+    );
+    if (getAddress(recovered) === wallet) return true;
+  } catch {
+    // Fall through to legacy domain verification without chainId.
+  }
+
+  const { chainId: _unused, ...legacyDomain } = typedDataWithChainId.domain;
+
+  try {
+    const recovered = verifyTypedData(
+      legacyDomain,
+      typedDataWithChainId.types,
+      typedDataWithChainId.value,
+      params.signature
+    );
+    return getAddress(recovered) === wallet;
+  } catch {
+    return false;
+  }
 }
 
 async function readJson(req: Request): Promise<unknown | null> {

@@ -134,4 +134,71 @@ describe('AccountPage', () => {
     expect(mocks.setToken).toHaveBeenCalledWith('token');
     expect(mocks.navigate).toHaveBeenCalledWith('/', { replace: true });
   });
+
+  it('retries typed-data signing without chainId when VeWorld reports invalid signed data message', async () => {
+    const address = '0x0000000000000000000000000000000000000001';
+    mocks.connect.mockResolvedValue({ account: address });
+    mocks.requestTypedData
+      .mockRejectedValueOnce(new Error('Invalid signed data message'))
+      .mockResolvedValueOnce('0xsig');
+
+    const challenge = {
+      challenge_id: '11111111-1111-1111-1111-111111111111',
+      typed_data: {
+        domain: { name: 'BigBottle', version: '1', chainId: 100010 },
+        types: {
+          Login: [
+            { name: 'challengeId', type: 'string' },
+            { name: 'wallet', type: 'address' },
+            { name: 'nonce', type: 'string' }
+          ]
+        },
+        value: { challengeId: '11111111-1111-1111-1111-111111111111', wallet: address, nonce: 'abc' }
+      }
+    };
+
+    mocks.apiPost.mockImplementation((path: unknown) => {
+      if (path === '/auth/challenge') return Promise.resolve(challenge);
+      if (path === '/auth/verify') {
+        return Promise.resolve({
+          access_token: 'token',
+          user: { id: 'user', wallet_address: address, created_at: 'now' }
+        });
+      }
+      throw new Error(`Unexpected apiPost path: ${String(path)}`);
+    });
+
+    render(<AccountPage />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: '立即登录' })[0]!);
+
+    await vi.advanceTimersByTimeAsync(450);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mocks.requestTypedData).toHaveBeenNthCalledWith(
+      1,
+      challenge.typed_data.domain,
+      challenge.typed_data.types,
+      challenge.typed_data.value,
+      { signer: address }
+    );
+
+    expect(mocks.requestTypedData).toHaveBeenNthCalledWith(
+      2,
+      { name: 'BigBottle', version: '1' },
+      challenge.typed_data.types,
+      challenge.typed_data.value,
+      { signer: address }
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mocks.apiPost).toHaveBeenCalledWith(
+      '/auth/verify',
+      { challenge_id: challenge.challenge_id, signature: '0xsig' },
+      null
+    );
+  });
 });

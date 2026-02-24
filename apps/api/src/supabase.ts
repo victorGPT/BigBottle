@@ -66,6 +66,22 @@ export type DbRewardClaim = {
   updated_at: string;
 };
 
+export type DbVoteBonusEligibility = {
+  id: number;
+  effective_round_id: number;
+  source_round_id: number;
+  passport_address: string;
+  user_id: string | null;
+  bonus_type: string;
+  bonus_multiplier: number;
+  status: string;
+  source: string;
+  computed_at: string;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 function ensureOk<T>(
   res: { data: T; error: unknown | null },
   message: string
@@ -304,6 +320,33 @@ export function createRepo(supabase: SupabaseClient) {
         .order('created_at', { ascending: false })
         .limit(limit);
       return ensureOk(res, 'Failed to list reward claims') as DbRewardClaim[];
+    },
+
+    async getLatestUserBonusEligibility(input: {
+      user_id: string;
+      wallet_address: string;
+      bonus_type: string;
+      effective_round_id?: number;
+    }): Promise<DbVoteBonusEligibility | null> {
+      const walletLower = input.wallet_address.trim().toLowerCase();
+      const orFilter = `user_id.eq.${input.user_id},passport_address.eq.${walletLower}`;
+      const query = supabase
+        .from('bigbottle_vote_bonus_eligibility')
+        .select('*')
+        .eq('bonus_type', input.bonus_type)
+        .eq('status', 'eligible')
+        .or(orFilter);
+      const filteredQuery =
+        input.effective_round_id === undefined
+          ? query
+          : query.eq('effective_round_id', input.effective_round_id);
+      const res = await filteredQuery
+        .order('effective_round_id', { ascending: false })
+        .order('computed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch user bonus eligibility');
+      return (data as DbVoteBonusEligibility) ?? null;
     },
 
     async getVerifiedSubmissionByFingerprint(fingerprint: string): Promise<Pick<DbReceiptSubmission, 'id' | 'user_id' | 'created_at'> | null> {

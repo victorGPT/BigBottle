@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWallet } from '@vechain/dapp-kit-react';
 import { Progress } from '@base-ui/react/progress';
-import { Coins, LifeBuoy, ReceiptText } from 'lucide-react';
+import { Coins, LifeBuoy, Medal, ReceiptText } from 'lucide-react';
 
 import Screen from '../components/Screen';
 import BottomTabBar from '../components/BottomTabBar';
@@ -30,6 +30,27 @@ type AccountSummary = {
   level: null;
 };
 
+type AccountAchievement = {
+  key: string;
+  title: string;
+  description: string;
+  badge: string;
+  unlocked: boolean;
+  multiplier: number;
+  status: string;
+  effective_round_id: number | null;
+  source_round_id: number | null;
+};
+
+type AccountAchievementsResponse = {
+  achievements: AccountAchievement[];
+  summary: {
+    unlocked_count: number;
+    total_count: number;
+    total_multiplier: number;
+  };
+};
+
 export default function AccountPage() {
   const nav = useNavigate();
   const { state, setToken, logout } = useAuth();
@@ -39,6 +60,11 @@ export default function AccountPage() {
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<AccountSummary | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [achievements, setAchievements] = useState<AccountAchievement[]>([]);
+  const [achievementsSummary, setAchievementsSummary] = useState<AccountAchievementsResponse['summary'] | null>(
+    null
+  );
+  const [achievementsError, setAchievementsError] = useState<string | null>(null);
 
   const [hasVeWorld, setHasVeWorld] = useState(() => {
     // DAppKit considers VeWorld "installed" when window.vechain exists.
@@ -99,6 +125,38 @@ export default function AccountPage() {
     };
   }, [token]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!token) {
+        if (!cancelled) {
+          setAchievements([]);
+          setAchievementsSummary(null);
+          setAchievementsError(null);
+        }
+        return;
+      }
+
+      setAchievementsError(null);
+      try {
+        const res = await apiGet<AccountAchievementsResponse>('/account/achievements', token);
+        if (!cancelled) {
+          setAchievements(res.achievements ?? []);
+          setAchievementsSummary(res.summary ?? null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setAchievementsError(e instanceof Error ? e.message : String(e));
+        }
+      }
+    }
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
   async function onLogin() {
     setError(null);
     if (!hasVeWorld) {
@@ -118,12 +176,25 @@ export default function AccountPage() {
       await new Promise((resolve) => window.setTimeout(resolve, 450));
 
       const challenge = await apiPost<ChallengeResponse>('/auth/challenge', { address: addr }, null);
-      const sig = await requestTypedData(
-        challenge.typed_data.domain,
-        challenge.typed_data.types,
-        challenge.typed_data.value,
-        { signer: addr }
-      );
+
+      const signTypedData = async (domain: Record<string, unknown>) =>
+        requestTypedData(domain, challenge.typed_data.types, challenge.typed_data.value, {
+          signer: addr
+        });
+
+      let sig: string;
+      try {
+        sig = await signTypedData(challenge.typed_data.domain);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const hasChainId = Object.prototype.hasOwnProperty.call(challenge.typed_data.domain, 'chainId');
+        const shouldRetryWithoutChainId = hasChainId && msg.toLowerCase().includes('invalid signed data message');
+
+        if (!shouldRetryWithoutChainId) throw e;
+
+        const { chainId: _unused, ...domainWithoutChainId } = challenge.typed_data.domain;
+        sig = await signTypedData(domainWithoutChainId);
+      }
 
       const verify = await apiPost<VerifyResponse>(
         '/auth/verify',
@@ -146,6 +217,8 @@ export default function AccountPage() {
       ? summary.points_total.toLocaleString()
       : '—'
     : '****';
+
+  const totalMultiplierText = (achievementsSummary?.total_multiplier ?? 1).toFixed(2);
 
   return (
     <Screen>
@@ -198,15 +271,68 @@ export default function AccountPage() {
           ))}
         </div>
 
-        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-white/10" />
-            <div className="flex-1">
-              <div className="text-sm font-medium">Connect X Account</div>
-              <div className="mt-0.5 text-xs text-white/50">绑定后可领取更多奖励</div>
+        <div className="mt-4 rounded-2xl border border-[#1E3A1E] bg-[#0F1F0F]/40 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold tracking-tight text-white">Achievements</div>
+              <div className="mt-1 text-[11px] text-white/50">成就勋章与奖励系数</div>
             </div>
-            <div className="text-white/30">{'>'}</div>
+            <div className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+              x{totalMultiplierText}
+            </div>
           </div>
+
+          <div className="mt-3 space-y-2">
+            {(achievements.length > 0
+              ? achievements
+              : [
+                  {
+                    key: 'vebetter_vote_bonus',
+                    title: 'VeBetterDAO Voter',
+                    description: '在 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。',
+                    badge: 'governance',
+                    unlocked: false,
+                    multiplier: 1,
+                    status: 'locked',
+                    effective_round_id: null,
+                    source_round_id: null
+                  }
+                ]
+            ).map((item) => (
+              <div
+                key={item.key}
+                className={`flex items-center gap-3 rounded-xl border px-3 py-3 ${
+                  item.unlocked
+                    ? 'border-amber-300/30 bg-amber-200/10'
+                    : 'border-white/10 bg-white/5'
+                }`}
+              >
+                <div
+                  className={`flex h-9 w-9 items-center justify-center rounded-full border ${
+                    item.unlocked
+                      ? 'border-amber-300/50 bg-amber-200/20 text-amber-100'
+                      : 'border-white/15 bg-white/10 text-white/60'
+                  }`}
+                >
+                  <Medal size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[12px] font-semibold text-white/90">{item.title}</div>
+                  <div className="mt-0.5 text-[11px] text-white/55">{item.description}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[12px] font-semibold text-emerald-200">x{item.multiplier.toFixed(2)}</div>
+                  <div className="mt-0.5 text-[10px] text-white/50">{item.unlocked ? '已达成' : '未达成'}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {achievementsError && (
+            <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+              {achievementsError}
+            </div>
+          )}
         </div>
 
         <div className="mt-auto">
