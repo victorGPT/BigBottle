@@ -1,6 +1,9 @@
 name: Vote Eligibility Audit
 
 on:
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       effective_round_id:
