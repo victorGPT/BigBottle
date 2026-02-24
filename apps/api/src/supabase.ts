@@ -38,6 +38,34 @@ export type DbReceiptSubmission = {
   updated_at: string;
 };
 
+export type DbRewardConversionRate = {
+  id: string;
+  points_per_b3tr: number;
+  active: boolean;
+  created_at: string;
+};
+
+export type DbRewardClaim = {
+  id: string;
+  user_id: string;
+  wallet_address: string;
+  client_claim_id: string;
+
+  conversion_rate_id: string;
+  points_per_b3tr_snapshot: number;
+  points_claimed: number;
+  // Postgres numeric is returned as string by PostgREST.
+  b3tr_amount_wei: string;
+
+  status: string;
+  tx_hash: string | null;
+  raw_tx: string | null;
+  failure_reason: string | null;
+
+  created_at: string;
+  updated_at: string;
+};
+
 export type DbVoteBonusEligibility = {
   id: number;
   effective_round_id: number;
@@ -199,6 +227,99 @@ export function createRepo(supabase: SupabaseClient) {
       const res = await supabase.rpc('bb_user_points_total', { user_id: userId });
       const data = ensureOk(res, 'Failed to compute user points total');
       return typeof data === 'number' && Number.isFinite(data) ? data : 0;
+    },
+
+    async getUserPointsLocked(userId: string): Promise<number> {
+      const res = await supabase.rpc('bb_user_points_locked', { user_id: userId });
+      const data = ensureOk(res, 'Failed to compute user points locked');
+      return typeof data === 'number' && Number.isFinite(data) ? data : 0;
+    },
+
+    async getActiveRewardConversionRate(): Promise<DbRewardConversionRate | null> {
+      const res = await supabase
+        .from('reward_conversion_rates')
+        .select('*')
+        .eq('active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch active reward conversion rate');
+      return (data as DbRewardConversionRate) ?? null;
+    },
+
+    async getRewardClaimById(id: string): Promise<DbRewardClaim | null> {
+      const res = await supabase
+        .from('reward_claims')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch reward claim');
+      return (data as DbRewardClaim) ?? null;
+    },
+
+    async getRewardClaimByClientId(input: { user_id: string; client_claim_id: string }): Promise<DbRewardClaim | null> {
+      const res = await supabase
+        .from('reward_claims')
+        .select('*')
+        .eq('user_id', input.user_id)
+        .eq('client_claim_id', input.client_claim_id)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch reward claim by client id');
+      return (data as DbRewardClaim) ?? null;
+    },
+
+    async getInflightRewardClaim(userId: string): Promise<DbRewardClaim | null> {
+      const res = await supabase
+        .from('reward_claims')
+        .select('*')
+        .eq('user_id', userId)
+        .in('status', ['pending', 'submitted'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch inflight reward claim');
+      return (data as DbRewardClaim) ?? null;
+    },
+
+    async createRewardClaim(input: {
+      user_id: string;
+      wallet_address: string;
+      client_claim_id: string;
+      conversion_rate_id: string;
+      points_per_b3tr_snapshot: number;
+      points_claimed: number;
+      b3tr_amount_wei: string;
+      status: string;
+    }): Promise<DbRewardClaim> {
+      const res = await supabase
+        .from('reward_claims')
+        .insert(input)
+        .select('*')
+        .single();
+      return ensureOk(res, 'Failed to create reward claim') as DbRewardClaim;
+    },
+
+    async updateRewardClaim(
+      id: string,
+      patch: Partial<Omit<DbRewardClaim, 'id' | 'user_id' | 'created_at'>>
+    ): Promise<DbRewardClaim> {
+      const res = await supabase
+        .from('reward_claims')
+        .update(patch)
+        .eq('id', id)
+        .select('*')
+        .single();
+      return ensureOk(res, 'Failed to update reward claim') as DbRewardClaim;
+    },
+
+    async listRewardClaims(userId: string, limit = 20): Promise<DbRewardClaim[]> {
+      const res = await supabase
+        .from('reward_claims')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      return ensureOk(res, 'Failed to list reward claims') as DbRewardClaim[];
     },
 
     async getLatestUserBonusEligibility(input: {

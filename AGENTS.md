@@ -9,11 +9,13 @@ If a rule here conflicts with the global constitution, **this repo file wins** (
 
 现象：在 **VeWorld iOS 内置浏览器**里，钱包连接流程在完成 **certificate 签名**后，若紧接着触发下一次签名/bridge 调用，可能导致 VeWorld 直接闪退。
 
-当前仓库的已验证 workaround（见 `apps/web/src/app/pages/WalletPage.tsx`）：
+当前仓库的已验证 workaround（见 `apps/web/src/app/pages/AccountPage.tsx`）：
 
 - 在 `connect()` 成功后，**等待一小段时间**（当前实现是 `450ms`）再进行后续的 typed data 签名流程。
 - 进行 typed data 签名时，**显式传入 signer**（`{ signer: <connectedAddress> }`）。
 - 统一使用 `useWallet().requestTypedData(...)` 调用签名，不要直接使用底层 `signer.signTypedData(...)`（避免参数/桥接差异）。
+
+当前实现位置：`apps/web/src/app/pages/AccountPage.tsx`
 
 注意：
 
@@ -30,10 +32,23 @@ If a rule here conflicts with the global constitution, **this repo file wins** (
 
 ## Verification (必做)
 
-在触及钱包登录流程（尤其是 `WalletPage`）的改动后，至少完成：
+在触及钱包登录流程（尤其是 `apps/web/src/app/pages/AccountPage.tsx`）的改动后，至少完成：
 
 - `pnpm -C apps/web typecheck`
 - 真机 VeWorld iOS（最新版本）手工回归：
   - 连续登录 10 次（或冷启动后重复）不闪退
   - 能正常拿到 `access_token` 并进入已登录状态
 
+## Architecture Documentation (Required)
+
+本仓库要求：**每个任务结束必须更新 `ARCHITECTURE.md`**，同步本次任务对“公共接口/架构索引”的所有变更。
+
+需要同步的变更（公共接口级）：
+- HTTP API 路由、鉴权要求、关键请求/响应 shape
+- 导出的函数/类型（签名、参数、返回值 shape、语义变化）
+- React 路由页面与可见行为（例如新增页面、路由变更、登录/上传流程变化）
+- 数据库迁移、表结构、SQL functions、约束与索引
+- 新增的源代码文件（按模块在 `ARCHITECTURE.md` 里登记职责）
+
+不需要逐文件列举的内容：
+- 生成物目录（例如 `apps/web/dist/`, `apps/api/dist/`, `node_modules/`），在 `ARCHITECTURE.md` 里仅做目录级说明即可。
