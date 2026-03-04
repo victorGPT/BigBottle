@@ -300,10 +300,10 @@ export default function AccountPage() {
                 node_level: null
               },
               {
-                key: 'vebetter_node',
-                title: 'VeBetterDAO Node',
-                description: '未检测到 VeBetterDAO 节点。',
-                badge: 'node',
+                key: 'gm_nft',
+                title: 'GM-NFT',
+                description: '未检测到 GM-NFT。',
+                badge: 'gm_nft',
                 unlocked: false,
                 multiplier: 1,
                 status: 'locked',
@@ -323,10 +323,10 @@ export default function AccountPage() {
                     const label =
                       item.key === 'vebetter_vote_bonus'
                         ? '投票用户'
-                        : item.key === 'vebetter_node'
+                        : item.key === 'gm_nft'
                           ? item.unlocked && item.node_name
-                            ? `节点 · ${item.node_name}`
-                            : '节点'
+                            ? `GM-NFT · ${item.node_name}`
+                            : 'GM-NFT'
                           : item.title;
 
                     return (
