@@ -93,6 +93,22 @@ function toSafeMultiplier(value: unknown, fallback = 1): number {
   return Math.max(1, n);
 }
 
+const VEBETTER_NODE_LEVEL_NAME: Record<number, string> = {
+  1: 'Strength Node',
+  2: 'Thunder Node',
+  3: 'Mjolnir Node',
+  4: 'VeThor X Node',
+  5: 'Strength X Node',
+  6: 'Thunder X Node',
+  7: 'Mjolnir X Node'
+};
+
+function resolveVeBetterNodeName(level: number, isX: boolean): string {
+  const knownName = VEBETTER_NODE_LEVEL_NAME[level];
+  if (knownName) return knownName;
+  return isX ? `X Node Level ${level}` : `Node Level ${level}`;
+}
+
 async function main() {
   const config = loadConfig();
   const supabase = createSupabaseAdmin(config);
@@ -243,9 +259,16 @@ async function main() {
     };
 
     const vebetterVote = await repo.getLatestUserBonusEligibility(voteEligibilityInput);
+    const vebetterNode = await repo.getCurrentVeBetterNodeByOwner(wallet);
 
     const unlocked = Boolean(vebetterVote);
     const multiplier = unlocked ? toSafeMultiplier(vebetterVote?.bonus_multiplier, 1) : 1;
+
+    const nodeUnlocked = Boolean(vebetterNode);
+    const nodeLevel = vebetterNode?.level ?? null;
+    const nodeName = nodeUnlocked && nodeLevel !== null
+      ? resolveVeBetterNodeName(nodeLevel, Boolean(vebetterNode?.is_x))
+      : null;
 
     const achievements = [
       {
@@ -257,7 +280,24 @@ async function main() {
         multiplier,
         status: unlocked ? vebetterVote?.status ?? 'eligible' : 'locked',
         effective_round_id: unlocked ? (vebetterVote?.effective_round_id ?? null) : null,
-        source_round_id: unlocked ? (vebetterVote?.source_round_id ?? null) : null
+        source_round_id: unlocked ? (vebetterVote?.source_round_id ?? null) : null,
+        node_name: null,
+        node_level: null
+      },
+      {
+        key: 'vebetter_node',
+        title: 'VeBetterDAO Node',
+        description: nodeUnlocked
+          ? `已持有节点：${nodeName}`
+          : '未检测到 VeBetterDAO 节点。',
+        badge: 'node',
+        unlocked: nodeUnlocked,
+        multiplier: 1,
+        status: nodeUnlocked ? 'eligible' : 'locked',
+        effective_round_id: null,
+        source_round_id: null,
+        node_name: nodeName,
+        node_level: nodeLevel
       }
     ];
 

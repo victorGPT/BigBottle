@@ -40,6 +40,8 @@ type AccountAchievement = {
   status: string;
   effective_round_id: number | null;
   source_round_id: number | null;
+  node_name?: string | null;
+  node_level?: number | null;
 };
 
 type AccountAchievementsResponse = {
@@ -282,51 +284,99 @@ export default function AccountPage() {
             </div>
           </div>
 
-          <div className="mt-3 space-y-2">
-            {(achievements.length > 0
-              ? achievements
-              : [
-                  {
-                    key: 'vebetter_vote_bonus',
-                    title: 'VeBetterDAO Voter',
-                    description: '在 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。',
-                    badge: 'governance',
-                    unlocked: false,
-                    multiplier: 1,
-                    status: 'locked',
-                    effective_round_id: null,
-                    source_round_id: null
-                  }
-                ]
-            ).map((item) => (
-              <div
-                key={item.key}
-                className={`flex items-center gap-3 rounded-xl border px-3 py-3 ${
-                  item.unlocked
-                    ? 'border-amber-300/30 bg-amber-200/10'
-                    : 'border-white/10 bg-white/5'
-                }`}
-              >
-                <div
-                  className={`flex h-9 w-9 items-center justify-center rounded-full border ${
-                    item.unlocked
-                      ? 'border-amber-300/50 bg-amber-200/20 text-amber-100'
-                      : 'border-white/15 bg-white/10 text-white/60'
-                  }`}
-                >
-                  <Medal size={16} />
+          {(() => {
+            const fallbackAchievements: AccountAchievement[] = [
+              {
+                key: 'vebetter_vote_bonus',
+                title: 'VeBetterDAO Voter',
+                description: '在 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。',
+                badge: 'governance',
+                unlocked: false,
+                multiplier: 1,
+                status: 'locked',
+                effective_round_id: null,
+                source_round_id: null,
+                node_name: null,
+                node_level: null
+              },
+              {
+                key: 'vebetter_node',
+                title: 'VeBetterDAO Node',
+                description: '未检测到 VeBetterDAO 节点。',
+                badge: 'node',
+                unlocked: false,
+                multiplier: 1,
+                status: 'locked',
+                effective_round_id: null,
+                source_round_id: null,
+                node_name: null,
+                node_level: null
+              }
+            ];
+
+            const displayAchievements = achievements.length > 0 ? achievements : fallbackAchievements;
+
+            return (
+              <>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {displayAchievements.map((item) => {
+                    const label =
+                      item.key === 'vebetter_vote_bonus'
+                        ? '投票用户'
+                        : item.key === 'vebetter_node'
+                          ? item.unlocked && item.node_name
+                            ? `节点 · ${item.node_name}`
+                            : '节点'
+                          : item.title;
+
+                    return (
+                      <div
+                        key={`tag-${item.key}`}
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                          item.unlocked
+                            ? 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100'
+                            : 'border-white/15 bg-white/5 text-white/60'
+                        }`}
+                      >
+                        {label}
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12px] font-semibold text-white/90">{item.title}</div>
-                  <div className="mt-0.5 text-[11px] text-white/55">{item.description}</div>
+
+                <div className="mt-3 space-y-2">
+                  {displayAchievements.map((item) => (
+                    <div
+                      key={item.key}
+                      className={`flex items-center gap-3 rounded-xl border px-3 py-3 ${
+                        item.unlocked
+                          ? 'border-amber-300/30 bg-amber-200/10'
+                          : 'border-white/10 bg-white/5'
+                      }`}
+                    >
+                      <div
+                        className={`flex h-9 w-9 items-center justify-center rounded-full border ${
+                          item.unlocked
+                            ? 'border-amber-300/50 bg-amber-200/20 text-amber-100'
+                            : 'border-white/15 bg-white/10 text-white/60'
+                        }`}
+                      >
+                        <Medal size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[12px] font-semibold text-white/90">{item.title}</div>
+                        <div className="mt-0.5 text-[11px] text-white/55">{item.description}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[12px] font-semibold text-emerald-200">x{item.multiplier.toFixed(2)}</div>
+                        <div className="mt-0.5 text-[10px] text-white/50">{item.unlocked ? '已达成' : '未达成'}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="text-right">
-                  <div className="text-[12px] font-semibold text-emerald-200">x{item.multiplier.toFixed(2)}</div>
-                  <div className="mt-0.5 text-[10px] text-white/50">{item.unlocked ? '已达成' : '未达成'}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+              </>
+            );
+          })()}
 
           {achievementsError && (
             <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
