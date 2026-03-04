@@ -4,7 +4,7 @@ import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { z } from 'zod';
 import { randomBytes, randomUUID } from 'crypto';
-import { Contract, JsonRpcProvider, getAddress } from 'ethers';
+import { Interface, getAddress } from 'ethers';
 
 import './types.js';
 import { loadConfig } from './config.js';
@@ -93,26 +93,17 @@ function toSafeMultiplier(value: unknown, fallback = 1): number {
   return Math.max(1, n);
 }
 
-const VECHAIN_MAINNET_RPC_URL = process.env.VECHAIN_NODE_URL?.trim() || 'https://mainnet.vechain.org';
+const VECHAIN_MAINNET_THOR_URL =
+  process.env.VECHAIN_THOR_URL?.trim() ||
+  process.env.VECHAIN_NODE_URL?.trim() ||
+  'https://mainnet.vechain.org';
 const VEBETTER_GALAXY_MEMBER_ADDRESS =
   process.env.VEBETTER_GALAXY_MEMBER_ADDRESS?.trim() || '0x93B8cD34A7Fc4f53271b9011161F7A2B5fEA9D1F';
 
-const GALAXY_MEMBER_ABI = [
-  {
-    inputs: [{ internalType: 'address', name: 'owner', type: 'address' }],
-    name: 'balanceOf',
-    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function'
-  },
-  {
-    inputs: [{ internalType: 'address', name: 'owner', type: 'address' }],
-    name: 'getLevel',
-    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function'
-  }
-] as const;
+const GALAXY_MEMBER_IFACE = new Interface([
+  'function balanceOf(address owner) view returns (uint256)',
+  'function getLevel(address owner) view returns (uint256)'
+]);
 
 const GM_NFT_LEVEL_NAME: Record<number, string> = {
   0: 'Earth',
@@ -132,19 +123,44 @@ function resolveGmNftName(level: number): string {
   return GM_NFT_LEVEL_NAME[level] ?? `Level ${level}`;
 }
 
-async function getHighestGmNftByOwner(
-  provider: JsonRpcProvider,
-  walletAddress: string
-): Promise<{ level: number; name: string } | null> {
-  const contract = new Contract(VEBETTER_GALAXY_MEMBER_ADDRESS, GALAXY_MEMBER_ABI, provider) as Contract & {
-    balanceOf(owner: string): Promise<bigint>;
-    getLevel(owner: string): Promise<bigint>;
-  };
+async function callThorContract(to: string, data: string, caller: string): Promise<string> {
+  const res = await fetch(`${VECHAIN_MAINNET_THOR_URL}/accounts/*`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      clauses: [{ to, data, value: '0x0' }],
+      caller
+    })
+  });
 
-  const [balanceRaw, levelRaw] = await Promise.all([
-    contract.balanceOf(walletAddress),
-    contract.getLevel(walletAddress)
+  if (!res.ok) {
+    throw new Error(`thor call failed: ${res.status}`);
+  }
+
+  const payload = (await res.json()) as Array<{ data?: string }>;
+  const output = payload?.[0]?.data;
+  if (!output || output === '0x') {
+    throw new Error('thor call returned empty data');
+  }
+  return output;
+}
+
+async function getHighestGmNftByOwner(walletAddress: string): Promise<{ level: number; name: string } | null> {
+  const [balanceHex, levelHex] = await Promise.all([
+    callThorContract(
+      VEBETTER_GALAXY_MEMBER_ADDRESS,
+      GALAXY_MEMBER_IFACE.encodeFunctionData('balanceOf', [walletAddress]),
+      walletAddress
+    ),
+    callThorContract(
+      VEBETTER_GALAXY_MEMBER_ADDRESS,
+      GALAXY_MEMBER_IFACE.encodeFunctionData('getLevel', [walletAddress]),
+      walletAddress
+    )
   ]);
+
+  const balanceRaw = GALAXY_MEMBER_IFACE.decodeFunctionResult('balanceOf', balanceHex)[0] as bigint;
+  const levelRaw = GALAXY_MEMBER_IFACE.decodeFunctionResult('getLevel', levelHex)[0] as bigint;
 
   const balance = Number(balanceRaw);
   const level = Number(levelRaw);
@@ -164,7 +180,6 @@ async function main() {
   const repo = createRepo(supabase);
   const s3 = createS3Client(config);
   const rewardsChain = createRewardsChain(config);
-  const vechainMainnetProvider = new JsonRpcProvider(VECHAIN_MAINNET_RPC_URL);
 
   const app = Fastify({
     logger: true
@@ -312,7 +327,7 @@ async function main() {
 
     let highestGmNft: { level: number; name: string } | null = null;
     try {
-      highestGmNft = await getHighestGmNftByOwner(vechainMainnetProvider, wallet);
+      highestGmNft = await getHighestGmNftByOwner(wallet);
     } catch (err) {
       request.log.warn({ err, wallet }, 'gm_nft_lookup_failed');
     }
