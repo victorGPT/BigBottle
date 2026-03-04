@@ -95,11 +95,23 @@ export default function ScanPage() {
     );
 
     if (init.upload) {
-      const res = await fetch(init.upload.url, {
-        method: init.upload.method,
-        headers: init.upload.headers,
-        body: uploadFile
-      });
+      const tryUpload = async (headers: Record<string, string>) => {
+        return fetch(init.upload!.url, {
+          method: init.upload!.method,
+          headers,
+          body: uploadFile
+        });
+      };
+
+      let res = await tryUpload(init.upload.headers);
+
+      // Some S3 buckets still require object ACLs from presigned-browser uploads,
+      // while others reject them. If we get 403, retry once with `x-amz-acl`.
+      if (!res.ok && res.status === 403) {
+        const retryHeaders = { ...init.upload.headers, 'x-amz-acl': 'public-read' };
+        res = await tryUpload(retryHeaders);
+      }
+
       if (!res.ok) throw new Error(`upload_failed:${res.status}`);
     }
 
