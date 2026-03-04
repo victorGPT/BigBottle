@@ -474,7 +474,6 @@ async function main() {
           bucket: existing.image_bucket,
           key: existing.image_key,
           contentType: existingContentType,
-          acl: 'public-read',
           expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
         });
         return reply.send({ submission: existing, upload: { method: 'PUT', ...upload } });
@@ -530,8 +529,7 @@ async function main() {
             bucket: again.image_bucket,
             key: again.image_key,
             contentType: again.image_content_type || contentType,
-            acl: 'public-read',
-            expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
+              expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
           });
           return reply.send({ submission: again, upload: { method: 'PUT', ...upload } });
         }
