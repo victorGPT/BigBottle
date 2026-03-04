@@ -1,6 +1,21 @@
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
-const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:4000';
+function normalizeApiBaseUrl(raw: string): string {
+  let out = raw.trim().replace(/\/+$/, '');
+
+  // Guard against common misconfiguration:
+  //   https://<project>.supabase.co/functions/v1/api/api
+  // which makes requests hit .../api/api/* and return {"error":"not_found"}.
+  while (/\/api\/api(?=\/|$)/.test(out)) {
+    out = out.replace(/\/api\/api(?=\/|$)/, '/api');
+  }
+
+  return out;
+}
+
+const API_URL = normalizeApiBaseUrl(
+  (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:4000'
+);
 
 function joinUrl(base: string, path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
