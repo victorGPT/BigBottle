@@ -4,7 +4,7 @@ import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { z } from 'zod';
 import { randomBytes, randomUUID } from 'crypto';
-import { getAddress } from 'ethers';
+import { Contract, JsonRpcProvider, getAddress } from 'ethers';
 
 import './types.js';
 import { loadConfig } from './config.js';
@@ -93,20 +93,69 @@ function toSafeMultiplier(value: unknown, fallback = 1): number {
   return Math.max(1, n);
 }
 
-const VEBETTER_NODE_LEVEL_NAME: Record<number, string> = {
-  1: 'Strength',
-  2: 'Thunder',
-  3: 'Mjolnir',
-  4: 'VeThorX',
-  5: 'StrengthX',
-  6: 'ThunderX',
-  7: 'MjolnirX'
+const VECHAIN_MAINNET_RPC_URL = process.env.VECHAIN_NODE_URL?.trim() || 'https://mainnet.vechain.org';
+const VEBETTER_GALAXY_MEMBER_ADDRESS =
+  process.env.VEBETTER_GALAXY_MEMBER_ADDRESS?.trim() || '0x93B8cD34A7Fc4f53271b9011161F7A2B5fEA9D1F';
+
+const GALAXY_MEMBER_ABI = [
+  {
+    inputs: [{ internalType: 'address', name: 'owner', type: 'address' }],
+    name: 'balanceOf',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function'
+  },
+  {
+    inputs: [{ internalType: 'address', name: 'owner', type: 'address' }],
+    name: 'getLevel',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function'
+  }
+] as const;
+
+const GM_NFT_LEVEL_NAME: Record<number, string> = {
+  0: 'Earth',
+  1: 'Moon',
+  2: 'Mercury',
+  3: 'Venus',
+  4: 'Mars',
+  5: 'Jupiter',
+  6: 'Saturn',
+  7: 'Uranus',
+  8: 'Neptune',
+  9: 'Pluto',
+  10: 'Galaxy'
 };
 
-function resolveVeBetterNodeName(level: number, isX: boolean): string {
-  const knownName = VEBETTER_NODE_LEVEL_NAME[level];
-  if (knownName) return knownName;
-  return isX ? `X-Level ${level}` : `Level ${level}`;
+function resolveGmNftName(level: number): string {
+  return GM_NFT_LEVEL_NAME[level] ?? `Level ${level}`;
+}
+
+async function getHighestGmNftByOwner(
+  provider: JsonRpcProvider,
+  walletAddress: string
+): Promise<{ level: number; name: string } | null> {
+  const contract = new Contract(VEBETTER_GALAXY_MEMBER_ADDRESS, GALAXY_MEMBER_ABI, provider) as Contract & {
+    balanceOf(owner: string): Promise<bigint>;
+    getLevel(owner: string): Promise<bigint>;
+  };
+
+  const [balanceRaw, levelRaw] = await Promise.all([
+    contract.balanceOf(walletAddress),
+    contract.getLevel(walletAddress)
+  ]);
+
+  const balance = Number(balanceRaw);
+  const level = Number(levelRaw);
+
+  if (!Number.isFinite(balance) || balance <= 0) return null;
+  if (!Number.isFinite(level) || level <= 0) return null;
+
+  return {
+    level,
+    name: resolveGmNftName(level)
+  };
 }
 
 async function main() {
@@ -115,6 +164,7 @@ async function main() {
   const repo = createRepo(supabase);
   const s3 = createS3Client(config);
   const rewardsChain = createRewardsChain(config);
+  const vechainMainnetProvider = new JsonRpcProvider(VECHAIN_MAINNET_RPC_URL);
 
   const app = Fastify({
     logger: true
@@ -259,16 +309,20 @@ async function main() {
     };
 
     const vebetterVote = await repo.getLatestUserBonusEligibility(voteEligibilityInput);
-    const vebetterNode = await repo.getCurrentVeBetterNodeByOwner(wallet);
+
+    let highestGmNft: { level: number; name: string } | null = null;
+    try {
+      highestGmNft = await getHighestGmNftByOwner(vechainMainnetProvider, wallet);
+    } catch (err) {
+      request.log.warn({ err, wallet }, 'gm_nft_lookup_failed');
+    }
 
     const unlocked = Boolean(vebetterVote);
     const multiplier = unlocked ? toSafeMultiplier(vebetterVote?.bonus_multiplier, 1) : 1;
 
-    const nodeUnlocked = Boolean(vebetterNode);
-    const nodeLevel = vebetterNode?.level ?? null;
-    const nodeName = nodeUnlocked && nodeLevel !== null
-      ? resolveVeBetterNodeName(nodeLevel, Boolean(vebetterNode?.is_x))
-      : null;
+    const gmUnlocked = Boolean(highestGmNft);
+    const gmLevel = highestGmNft?.level ?? null;
+    const gmName = highestGmNft?.name ?? null;
 
     const achievements = [
       {
@@ -285,19 +339,19 @@ async function main() {
         node_level: null
       },
       {
-        key: 'vebetter_node',
-        title: 'VeBetterDAO Node',
-        description: nodeUnlocked
-          ? `已持有节点：${nodeName}`
-          : '未检测到 VeBetterDAO 节点。',
-        badge: 'node',
-        unlocked: nodeUnlocked,
+        key: 'gm_nft',
+        title: 'GM-NFT',
+        description: gmUnlocked
+          ? `已持有最高等级 GM-NFT：${gmName}`
+          : '未检测到 GM-NFT。',
+        badge: 'gm_nft',
+        unlocked: gmUnlocked,
         multiplier: 1,
-        status: nodeUnlocked ? 'eligible' : 'locked',
+        status: gmUnlocked ? 'eligible' : 'locked',
         effective_round_id: null,
         source_round_id: null,
-        node_name: nodeName,
-        node_level: nodeLevel
+        node_name: gmName,
+        node_level: gmLevel
       }
     ];
 
