@@ -82,6 +82,16 @@ export type DbVoteBonusEligibility = {
   updated_at: string;
 };
 
+export type DbVeBetterNodeCurrent = {
+  identifier: string;
+  owner_address: string;
+  level: number;
+  is_x: boolean;
+  sync_block_number: number;
+  sync_run_id: string;
+  updated_at: string;
+};
+
 function ensureOk<T>(
   res: { data: T; error: unknown | null },
   message: string
@@ -347,6 +357,19 @@ export function createRepo(supabase: SupabaseClient) {
         .maybeSingle();
       const data = ensureOk(res, 'Failed to fetch user bonus eligibility');
       return (data as DbVoteBonusEligibility) ?? null;
+    },
+
+    async getCurrentVeBetterNodeByOwner(walletAddress: string): Promise<DbVeBetterNodeCurrent | null> {
+      const walletLower = walletAddress.trim().toLowerCase();
+      const res = await supabase
+        .from('vebetter_node_current')
+        .select('*')
+        .eq('owner_address', walletLower)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to fetch current vebetter node by owner');
+      return (data as DbVeBetterNodeCurrent) ?? null;
     },
 
     async getVerifiedSubmissionByFingerprint(fingerprint: string): Promise<Pick<DbReceiptSubmission, 'id' | 'user_id' | 'created_at'> | null> {
