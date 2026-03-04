@@ -94,19 +94,19 @@ function toSafeMultiplier(value: unknown, fallback = 1): number {
 }
 
 const VEBETTER_NODE_LEVEL_NAME: Record<number, string> = {
-  1: 'Strength Node',
-  2: 'Thunder Node',
-  3: 'Mjolnir Node',
-  4: 'VeThor X Node',
-  5: 'Strength X Node',
-  6: 'Thunder X Node',
-  7: 'Mjolnir X Node'
+  1: 'Strength',
+  2: 'Thunder',
+  3: 'Mjolnir',
+  4: 'VeThorX',
+  5: 'StrengthX',
+  6: 'ThunderX',
+  7: 'MjolnirX'
 };
 
 function resolveVeBetterNodeName(level: number, isX: boolean): string {
   const knownName = VEBETTER_NODE_LEVEL_NAME[level];
   if (knownName) return knownName;
-  return isX ? `X Node Level ${level}` : `Node Level ${level}`;
+  return isX ? `X-Level ${level}` : `Level ${level}`;
 }
 
 async function main() {
