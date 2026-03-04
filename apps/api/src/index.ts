@@ -543,7 +543,6 @@ async function main() {
       bucket: created.image_bucket,
       key: created.image_key,
       contentType: created.image_content_type || contentType,
-      acl: 'public-read',
       expiresInSeconds: config.S3_PRESIGN_EXPIRES_SECONDS
     });
 
