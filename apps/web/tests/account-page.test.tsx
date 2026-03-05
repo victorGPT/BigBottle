@@ -37,9 +37,9 @@ vi.mock('../src/util/api', () => {
   };
 });
 
-vi.mock('@vechain/dapp-kit-react', () => {
+vi.mock('@vechain/vechain-kit', () => {
   return {
-    useWallet: () => ({
+    useDAppKitWallet: () => ({
       connect: mocks.connect,
       setSource: mocks.setSource,
       account: null,

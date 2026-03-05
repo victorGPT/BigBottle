@@ -23,10 +23,10 @@ Runtime components:
 - Data store: Supabase Postgres (`supabase/migrations`)
 - Object store: AWS S3 (receipt images)
 - Receipt extraction/verification: Dify (mock or workflow)
-- Wallet login: VeWorld (typed-data signature)
+- Wallet login: VeChain Kit (`@vechain/vechain-kit`) with VeWorld / Sync2 / WalletConnect (typed-data signature)
 
 High-level flow:
-1. User logs in with VeWorld wallet (challenge-response typed-data signature).
+1. User logs in with a VeChain wallet (VeWorld/Sync2/WalletConnect, challenge-response typed-data signature).
 2. User captures/uploads a receipt image (client compresses best-effort).
 3. Backend issues a presigned S3 PUT URL (idempotent by `client_submission_id`).
 4. Client uploads to S3, then marks the submission as uploaded.
@@ -71,7 +71,7 @@ Generated artifacts (directory-level only):
 File: `apps/web/src/main.tsx`
 - React root render
 - Providers:
-  - `DAppKitProvider` (VeWorld wallet bridge)
+  - `VeChainKitProvider` (wallet bridge with `dappKit.allowedWallets = ['veworld', 'sync2', 'wallet-connect']`)
   - `AuthProvider` (token storage + `/me` validation)
   - `BrowserRouter`
   - `AppErrorBoundary`
@@ -105,12 +105,12 @@ Public exports:
 - `useAuth(): { state: AuthState; setToken(token: string): void; logout(): void }`
 - `exchangeWalletSignatureForToken(input: { address: string; signature: string; challenge_id: string }): Promise<{ access_token: string; user: ApiUser }>`
 
-### Wallet Login (VeWorld) and iOS Stability Workaround
+### Wallet Login (VeChain Kit) and iOS Stability Workaround
 File: `apps/web/src/app/pages/AccountPage.tsx`
 
 Login flow:
-1. Force VeWorld source (`setSource('veworld')`) when available.
-2. `connect()` via `@vechain/dapp-kit-react`.
+1. Prefer VeWorld source (`setSource('veworld')`) when injected; otherwise keep Sync2/WalletConnect available.
+2. `connect()` via `useDAppKitWallet` from `@vechain/vechain-kit`.
 3. Wait `450ms` before the next signing request (VeWorld iOS in-app browser stability).
 4. `POST /auth/challenge` with `{ address }` to receive `{ challenge_id, typed_data }`.
 5. `requestTypedData(domain, types, value, { signer: address })`.
@@ -363,7 +363,7 @@ Columns added to `public.reward_claims`:
 
 ## External Integrations and Trust Boundaries
 
-VeWorld wallet:
+VeChain wallets (VeWorld / Sync2 / WalletConnect):
 - Login requires typed-data signing.
 - iOS in-app browser stability: avoid back-to-back signing; wait before typed-data request and pass `{ signer: address }`.
 

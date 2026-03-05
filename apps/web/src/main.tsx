@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
-import { DAppKitProvider } from '@vechain/dapp-kit-react';
+import { VeChainKitProvider } from '@vechain/vechain-kit';
 
 import App from './app/App';
 import AppErrorBoundary from './app/components/AppErrorBoundary';
@@ -12,7 +12,14 @@ import './style.css';
 
 ReactDOM.createRoot(document.getElementById('app')!).render(
   <React.StrictMode>
-    <DAppKitProvider node="https://testnet.vechain.org/" usePersistence logLevel="DEBUG">
+    <VeChainKitProvider
+      network={{ type: 'test', nodeUrl: 'https://testnet.vechain.org/' }}
+      dappKit={{
+        allowedWallets: ['veworld', 'sync2', 'wallet-connect'],
+        usePersistence: true,
+        logLevel: 'DEBUG'
+      }}
+    >
       <AuthProvider>
         <BrowserRouter>
           <AppErrorBoundary>
@@ -20,6 +27,6 @@ ReactDOM.createRoot(document.getElementById('app')!).render(
           </AppErrorBoundary>
         </BrowserRouter>
       </AuthProvider>
-    </DAppKitProvider>
+    </VeChainKitProvider>
   </React.StrictMode>
 );

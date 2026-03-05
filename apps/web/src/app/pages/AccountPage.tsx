@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useWallet } from '@vechain/dapp-kit-react';
+import { useDAppKitWallet } from '@vechain/vechain-kit';
 import { Progress } from '@base-ui/react/progress';
 import { Coins, LifeBuoy, Medal, ReceiptText } from 'lucide-react';
 
@@ -56,7 +56,7 @@ type AccountAchievementsResponse = {
 export default function AccountPage() {
   const nav = useNavigate();
   const { state, setToken, logout } = useAuth();
-  const { connect, setSource, account, source, requestTypedData } = useWallet();
+  const { connect, setSource, account, source, requestTypedData } = useDAppKitWallet();
 
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,43 +68,7 @@ export default function AccountPage() {
   );
   const [achievementsError, setAchievementsError] = useState<string | null>(null);
 
-  const [hasVeWorld, setHasVeWorld] = useState(() => {
-    // DAppKit considers VeWorld "installed" when window.vechain exists.
-    return typeof window !== 'undefined' && Boolean((window as unknown as { vechain?: unknown }).vechain);
-  });
-
-  useEffect(() => {
-    if (hasVeWorld) return;
-
-    // Some environments may inject `window.vechain` slightly after initial load.
-    // Poll briefly to avoid permanently disabling login.
-    let tries = 0;
-    const timer = window.setInterval(() => {
-      tries += 1;
-      const injected = Boolean((window as unknown as { vechain?: unknown }).vechain);
-      if (injected) {
-        window.clearInterval(timer);
-        setHasVeWorld(true);
-        return;
-      }
-      if (tries >= 20) window.clearInterval(timer);
-    }, 250);
-
-    return () => window.clearInterval(timer);
-  }, [hasVeWorld]);
-
-  useEffect(() => {
-    if (!hasVeWorld) return;
-    // Enforce VeWorld only (MVP). Guard to avoid crashing in unsupported environments.
-    try {
-      setSource('veworld');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
-    }
-  }, [hasVeWorld, setSource]);
-
-  const connectedAddress = useMemo(() => (account ? String(account) : null), [account]);
+  const connectedAddress = account ? String(account) : null;
   const isLoggedIn = state.status === 'logged_in';
   const walletAddress = isLoggedIn ? state.user.wallet_address : null;
   const token = isLoggedIn ? state.token : null;
@@ -161,14 +125,14 @@ export default function AccountPage() {
 
   async function onLogin() {
     setError(null);
-    if (!hasVeWorld) {
-      setError('未检测到 VeWorld。请使用 VeWorld 打开此页面后再登录。');
-      return;
-    }
     setIsBusy(true);
     try {
-      // Ensure source is set, even if the first render happened before injection.
-      if (source !== 'veworld') setSource('veworld');
+      const hasInjectedVeWorld =
+        typeof window !== 'undefined' && Boolean((window as unknown as { vechain?: unknown }).vechain);
+
+      // Prefer VeWorld when injected, but keep other wallets (Sync2/WalletConnect) available.
+      if (hasInjectedVeWorld && source !== 'veworld') setSource('veworld');
+
       const res = await connect();
       const addr = (res?.account ?? connectedAddress) as string | null;
       if (!addr) throw new Error('wallet_not_connected');
@@ -430,14 +394,14 @@ export default function AccountPage() {
               <button
                 type="button"
                 onClick={onLogin}
-                disabled={isBusy || !hasVeWorld}
+                disabled={isBusy}
                 className="mt-5 w-full rounded-2xl bg-[#F59E0B] py-4 text-sm font-semibold text-black transition active:scale-[0.99] disabled:opacity-60"
               >
                 {isBusy ? '登录中...' : '立即登录'}
               </button>
 
               <div className="mt-3 text-center text-[11px] text-white/45">
-                请使用 VeWorld 打开此应用完成登录
+                支持 VeWorld、Sync2、WalletConnect 登录
               </div>
             </>
           )}
