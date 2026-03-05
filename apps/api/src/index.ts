@@ -102,7 +102,8 @@ const VEBETTER_GALAXY_MEMBER_ADDRESS =
 
 const GALAXY_MEMBER_IFACE = new Interface([
   'function balanceOf(address owner) view returns (uint256)',
-  'function getLevel(address owner) view returns (uint256)'
+  'function tokenOfOwnerByIndex(address owner,uint256 index) view returns (uint256)',
+  'function getTokenInfoByTokenId(uint256 tokenId) view returns ((uint256 tokenId,string tokenURI,uint256 tokenLevel,uint256 b3trToUpgrade) tokenInfo)'
 ]);
 
 const GM_NFT_LEVEL_NAME: Record<number, string> = {
@@ -146,31 +147,49 @@ async function callThorContract(to: string, data: string, caller: string): Promi
 }
 
 async function getHighestGmNftByOwner(walletAddress: string): Promise<{ level: number; name: string } | null> {
-  const [balanceHex, levelHex] = await Promise.all([
-    callThorContract(
-      VEBETTER_GALAXY_MEMBER_ADDRESS,
-      GALAXY_MEMBER_IFACE.encodeFunctionData('balanceOf', [walletAddress]),
-      walletAddress
-    ),
-    callThorContract(
-      VEBETTER_GALAXY_MEMBER_ADDRESS,
-      GALAXY_MEMBER_IFACE.encodeFunctionData('getLevel', [walletAddress]),
-      walletAddress
-    )
-  ]);
+  const balanceHex = await callThorContract(
+    VEBETTER_GALAXY_MEMBER_ADDRESS,
+    GALAXY_MEMBER_IFACE.encodeFunctionData('balanceOf', [walletAddress]),
+    walletAddress
+  );
 
   const balanceRaw = GALAXY_MEMBER_IFACE.decodeFunctionResult('balanceOf', balanceHex)[0] as bigint;
-  const levelRaw = GALAXY_MEMBER_IFACE.decodeFunctionResult('getLevel', levelHex)[0] as bigint;
-
   const balance = Number(balanceRaw);
-  const level = Number(levelRaw);
 
   if (!Number.isFinite(balance) || balance <= 0) return null;
-  if (!Number.isFinite(level) || level <= 0) return null;
+
+  let highestLevel = 0;
+
+  for (let i = 0; i < balance; i += 1) {
+    const tokenIdHex = await callThorContract(
+      VEBETTER_GALAXY_MEMBER_ADDRESS,
+      GALAXY_MEMBER_IFACE.encodeFunctionData('tokenOfOwnerByIndex', [walletAddress, BigInt(i)]),
+      walletAddress
+    );
+
+    const tokenId = GALAXY_MEMBER_IFACE.decodeFunctionResult('tokenOfOwnerByIndex', tokenIdHex)[0] as bigint;
+
+    const tokenInfoHex = await callThorContract(
+      VEBETTER_GALAXY_MEMBER_ADDRESS,
+      GALAXY_MEMBER_IFACE.encodeFunctionData('getTokenInfoByTokenId', [tokenId]),
+      walletAddress
+    );
+
+    const tokenInfo = GALAXY_MEMBER_IFACE.decodeFunctionResult('getTokenInfoByTokenId', tokenInfoHex)[0] as {
+      tokenLevel: bigint;
+    };
+
+    const level = Number(tokenInfo.tokenLevel);
+    if (Number.isFinite(level) && level > highestLevel) {
+      highestLevel = level;
+    }
+  }
+
+  if (highestLevel <= 0) return null;
 
   return {
-    level,
-    name: resolveGmNftName(level)
+    level: highestLevel,
+    name: resolveGmNftName(highestLevel)
   };
 }
 
