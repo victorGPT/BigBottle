@@ -1,7 +1,7 @@
 {
+  "buildCommand": "VITE_API_URL=${VITE_API_URL:-https://tbvkyvxdhrmfprcjyvbk.supabase.co/functions/v1/api} pnpm build",
   "routes": [
     { "handle": "filesystem" },
     { "src": "/.*", "dest": "/index.html" }
   ]
 }
-

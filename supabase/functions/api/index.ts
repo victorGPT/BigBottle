@@ -132,7 +132,12 @@ function getRoutePath(pathname: string): string {
   const prefixes = ["/functions/v1/api", "/api"];
   for (const p of prefixes) {
     if (pathname === p) return "/";
-    if (pathname.startsWith(`${p}/`)) return pathname.slice(p.length);
+    if (pathname.startsWith(`${p}/`)) {
+      const routePath = pathname.slice(p.length);
+      if (routePath === "/api") return "/";
+      if (routePath.startsWith("/api/")) return routePath.slice(4);
+      return routePath;
+    }
   }
   return pathname;
 }
@@ -816,6 +821,58 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     return s3;
   };
 
+  if (req.method === "GET" && ctx.routePath === "/health/s3") {
+    const s3 = getS3();
+    const key = `healthchecks/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.txt`;
+    const url = s3ObjectUrl({ region: config.AWS_REGION, bucket: config.S3_BUCKET, key });
+
+    try {
+      const put = await s3.fetch(url, {
+        method: "PUT",
+        headers: { "content-type": "text/plain; charset=utf-8" },
+        body: "ok",
+      });
+      const putBody = put.ok ? null : await put.text();
+
+      const head = await s3.fetch(url, { method: "HEAD" });
+      const del = await s3.fetch(url, { method: "DELETE" });
+      const delBody = del.ok ? null : await del.text();
+
+      return jsonResponse(config, req, 200, {
+        ok: put.ok && head.ok && del.ok,
+        bucket: config.S3_BUCKET,
+        key,
+        put: {
+          status: put.status,
+          ok: put.ok,
+          request_id: put.headers.get("x-amz-request-id"),
+          id_2: put.headers.get("x-amz-id-2"),
+          body: putBody,
+        },
+        head: {
+          status: head.status,
+          ok: head.ok,
+          request_id: head.headers.get("x-amz-request-id"),
+          id_2: head.headers.get("x-amz-id-2"),
+        },
+        del: {
+          status: del.status,
+          ok: del.ok,
+          request_id: del.headers.get("x-amz-request-id"),
+          id_2: del.headers.get("x-amz-id-2"),
+          body: delBody,
+        },
+      });
+    } catch (err) {
+      return jsonResponse(config, req, 500, {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+        bucket: config.S3_BUCKET,
+        key,
+      });
+    }
+  }
+
   // --- Auth ---
   if (req.method === "POST" && ctx.routePath === "/auth/challenge") {
     const body = await readJson(req);
@@ -902,6 +959,36 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
     const pointsTotal = await getRepo().getUserPointsTotal(authed.sub);
     return jsonResponse(config, req, 200, { summary: { points_total: pointsTotal, level: null } });
+  }
+
+  if (req.method === "GET" && ctx.routePath === "/account/achievements") {
+    const authed = await requireAuth(config, req);
+    if (!authed) return errorResponse(config, req, 401, "unauthorized");
+
+    // Keep this endpoint shape aligned with the web client and local API server.
+    // Eligibility sync can enrich this later without breaking the client contract.
+    const achievements = [
+      {
+        key: "vebetter_vote_bonus",
+        title: "VeBetterDAO Voter",
+        description: "在 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。",
+        badge: "governance",
+        unlocked: false,
+        multiplier: 1,
+        status: "locked",
+        effective_round_id: null,
+        source_round_id: null,
+      },
+    ];
+
+    return jsonResponse(config, req, 200, {
+      achievements,
+      summary: {
+        unlocked_count: 0,
+        total_count: achievements.length,
+        total_multiplier: 1,
+      },
+    });
   }
 
   // --- Submissions ---

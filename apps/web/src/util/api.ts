@@ -3,6 +3,10 @@ type Json = Record<string, unknown> | unknown[] | string | number | boolean | nu
 function normalizeApiBaseUrl(raw: string): string {
   let out = raw.trim().replace(/\/+$/, '');
 
+  if (/\/functions\/v1$/i.test(out)) {
+    out = `${out}/api`;
+  }
+
   // Guard against common misconfiguration:
   //   https://<project>.supabase.co/functions/v1/api/api
   // which makes requests hit .../api/api/* and return {"error":"not_found"}.
@@ -13,9 +17,18 @@ function normalizeApiBaseUrl(raw: string): string {
   return out;
 }
 
-const API_URL = normalizeApiBaseUrl(
-  (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:4000'
-);
+function resolveApiBaseUrl(): string {
+  const configured = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+  if (configured) return normalizeApiBaseUrl(configured);
+
+  if (import.meta.env.PROD) {
+    throw new Error('Missing VITE_API_URL in production build');
+  }
+
+  return 'http://localhost:4000';
+}
+
+const API_URL = resolveApiBaseUrl();
 
 function joinUrl(base: string, path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
