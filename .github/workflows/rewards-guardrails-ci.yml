@@ -1,0 +1,53 @@
+name: Rewards Guardrails CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  rewards-guardrails:
+    runs-on: ubuntu-latest
+    env:
+      REWARDS_API_BASE_URL: ${{ secrets.REWARDS_API_BASE_URL }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.22.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          if [[ -z "${REWARDS_API_BASE_URL:-}" ]]; then
+            echo "REWARDS_API_BASE_URL is empty. Please set repository secret REWARDS_API_BASE_URL." >&2
+            exit 1
+          fi
+          if [[ -z "${SUPABASE_DB_URL:-}" ]]; then
+            echo "SUPABASE_DB_URL is empty. Please set repository secret SUPABASE_DB_URL." >&2
+            exit 1
+          fi
+
+      - name: Rewards API smoke + contract
+        run: pnpm -C apps/api exec node ../../scripts/ci/rewards-api-smoke-contract.mjs
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Supabase migration dry-run
+        run: supabase db push --dry-run --db-url "${SUPABASE_DB_URL}"

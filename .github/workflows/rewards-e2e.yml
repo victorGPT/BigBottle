@@ -1,0 +1,62 @@
+name: Rewards E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      preview_url:
+        description: Preview base URL (optional override)
+        required: false
+        type: string
+      prod_url:
+        description: Production base URL (optional override)
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      preview_url:
+        required: false
+        type: string
+      prod_url:
+        required: false
+        type: string
+
+jobs:
+  rewards-page-e2e:
+    runs-on: ubuntu-latest
+    env:
+      E2E_PREVIEW_URL: ${{ github.event.inputs.preview_url || inputs.preview_url || secrets.REWARDS_E2E_PREVIEW_URL }}
+      E2E_PROD_URL: ${{ github.event.inputs.prod_url || inputs.prod_url || secrets.REWARDS_E2E_PROD_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Validate preview/prod URLs
+        run: |
+          set -euo pipefail
+          if [[ -z "${E2E_PREVIEW_URL:-}" ]]; then
+            echo "E2E_PREVIEW_URL is empty. Set workflow input preview_url or secret REWARDS_E2E_PREVIEW_URL." >&2
+            exit 1
+          fi
+          if [[ -z "${E2E_PROD_URL:-}" ]]; then
+            echo "E2E_PROD_URL is empty. Set workflow input prod_url or secret REWARDS_E2E_PROD_URL." >&2
+            exit 1
+          fi
+
+      - name: Install Playwright (runtime only)
+        run: npm install --no-save playwright@1.53.2
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run rewards page E2E (preview + prod)
+        run: |
+          set -euo pipefail
+          echo "Running rewards E2E against preview URL: ${E2E_PREVIEW_URL}"
+          E2E_BASE_URL="${E2E_PREVIEW_URL}" node scripts/ci/rewards-page-e2e.mjs
+          echo "Running rewards E2E against prod URL: ${E2E_PROD_URL}"
+          E2E_BASE_URL="${E2E_PROD_URL}" node scripts/ci/rewards-page-e2e.mjs
