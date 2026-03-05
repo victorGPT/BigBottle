@@ -285,6 +285,11 @@ export default function AccountPage() {
           </div>
 
           {(() => {
+            // DEBUG
+            console.log('[DEBUG] achievements:', achievements);
+            console.log('[DEBUG] achievements.length:', achievements.length);
+            console.log('[DEBUG] gm_nft item:', achievements.find(a => a.key === 'gm_nft'));
+            console.log('[DEBUG] achievementsError:', achievementsError);
             const fallbackAchievements: AccountAchievement[] = [
               {
                 key: 'vebetter_vote_bonus',
