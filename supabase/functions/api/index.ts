@@ -599,13 +599,16 @@ async function getHighestGmNftByOwner(
     const tokenInfoData = GET_TOKEN_INFO_SELECTOR + encodeUint256(tokenId);
     const tokenInfoHex = await callThorContract(thorUrl, contract, tokenInfoData, walletAddress);
 
-    // tokenInfo returns: (uint256 tokenId, string tokenURI, uint256 tokenLevel, uint256 b3trToUpgrade)
-    // We need to decode tokenLevel which is the 3rd element (index 2)
-    // For simplicity, we read the raw bytes at offset 64*2 = 128 bytes (after tokenId and offset for string)
-    // Actually the tuple is: tokenId (32 bytes), offset to string (32 bytes), tokenLevel (32 bytes), b3trToUpgrade (32 bytes)
-    // So tokenLevel is at offset 64 (bytes 64-95)
+    // getTokenInfoByTokenId(tokenId) returns tuple:
+    // (uint256 tokenId, string tokenURI, uint256 tokenLevel, uint256 b3trToUpgrade)
+    // Layout:
+    // - offset to tuple (32 bytes)
+    // - tokenId (32 bytes)
+    // - offset to tokenURI string (32 bytes)
+    // - tokenLevel (32 bytes) <- at offset 96 bytes = hex chars 192
+    // - b3trToUpgrade (32 bytes)
     const cleanHex = tokenInfoHex.startsWith("0x") ? tokenInfoHex.slice(2) : tokenInfoHex;
-    const tokenLevelHex = cleanHex.slice(128, 192); // bytes 64-95
+    const tokenLevelHex = cleanHex.slice(192, 256); // bytes 96-127
     const level = Number(decodeUint256("0x" + tokenLevelHex));
 
     if (Number.isFinite(level) && level > highestLevel) {
