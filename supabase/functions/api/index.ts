@@ -36,6 +36,9 @@ type AppConfig = {
   DIFY_WORKFLOW_ID?: string;
   DIFY_IMAGE_INPUT_KEY: string;
   DIFY_TIMEOUT_MS: number;
+  // VeChain mainnet config for GM-NFT lookup
+  VECHAIN_THOR_URL?: string;
+  VEBETTER_GALAXY_MEMBER_ADDRESS?: string;
 };
 
 function envString(name: string): string | undefined {
@@ -103,6 +106,9 @@ function loadConfig(): AppConfig {
     DIFY_WORKFLOW_ID,
     DIFY_IMAGE_INPUT_KEY,
     DIFY_TIMEOUT_MS,
+    // GM-NFT lookup defaults
+    VECHAIN_THOR_URL: envString("VECHAIN_THOR_URL") ?? "https://mainnet.vechain.org",
+    VEBETTER_GALAXY_MEMBER_ADDRESS: envString("VEBETTER_GALAXY_MEMBER_ADDRESS") ?? "0x93B8cD34A7Fc4f53271b9011161F7A2B5fEA9D1F",
   };
 }
 
@@ -496,6 +502,123 @@ async function requireAuth(config: AppConfig, req: Request): Promise<AuthedUser 
   const m = auth.match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
   return await verifyAccessToken(config, m[1] ?? "");
+}
+
+// --- GM-NFT lookup ---
+const GM_NFT_LEVEL_NAMES: Record<number, string> = {
+  0: "No GM NFT",
+  1: "Earth",
+  2: "Moon",
+  3: "Mercury",
+  4: "Venus",
+  5: "Mars",
+  6: "Jupiter",
+  7: "Saturn",
+  8: "Uranus",
+  9: "Neptune",
+  10: "Galaxy",
+};
+
+function resolveGmNftName(level: number): string {
+  return GM_NFT_LEVEL_NAMES[level] ?? `Level ${level}`;
+}
+
+// ABI fragments as hex selectors for Thor contract calls
+const BALANCE_OF_SELECTOR = "0x70a08231"; // balanceOf(address)
+const TOKEN_OF_OWNER_BY_INDEX_SELECTOR = "0x2f745c59"; // tokenOfOwnerByIndex(address,uint256)
+const GET_TOKEN_INFO_SELECTOR = "0x558866c7"; // getTokenInfoByTokenId(uint256)
+
+async function callThorContract(
+  thorUrl: string,
+  contract: string,
+  data: string,
+  caller: string,
+): Promise<string> {
+  const res = await fetch(`${thorUrl}/accounts/*`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      clauses: [{ to: contract, data, value: "0x0" }],
+      caller,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`thor call failed: ${res.status}`);
+  }
+
+  const payload = (await res.json()) as Array<{ data?: string }>;
+  const output = payload?.[0]?.data;
+  if (!output || output === "0x") {
+    throw new Error("thor call returned empty data");
+  }
+  return output;
+}
+
+// Decode uint256 from hex (big-endian)
+function decodeUint256(hex: string): bigint {
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+  return BigInt(`0x${clean}`);
+}
+
+// Encode address to 32-byte hex
+function encodeAddress(addr: string): string {
+  const clean = addr.toLowerCase().replace(/^0x/, "");
+  return "0".repeat(24) + clean;
+}
+
+// Encode uint256 to 32-byte hex
+function encodeUint256(n: bigint): string {
+  const hex = n.toString(16);
+  return "0".repeat(64 - hex.length) + hex;
+}
+
+async function getHighestGmNftByOwner(
+  config: AppConfig,
+  walletAddress: string,
+): Promise<{ level: number; name: string } | null> {
+  const thorUrl = config.VECHAIN_THOR_URL ?? "https://mainnet.vechain.org";
+  const contract = config.VEBETTER_GALAXY_MEMBER_ADDRESS ?? "0x93B8cD34A7Fc4f53271b9011161F7A2B5fEA9D1F";
+
+  // balanceOf(walletAddress)
+  const balanceData = BALANCE_OF_SELECTOR + encodeAddress(walletAddress);
+  const balanceHex = await callThorContract(thorUrl, contract, balanceData, walletAddress);
+  const balance = Number(decodeUint256(balanceHex));
+
+  if (!Number.isFinite(balance) || balance <= 0) return null;
+
+  let highestLevel = 0;
+
+  for (let i = 0; i < balance; i++) {
+    // tokenOfOwnerByIndex(walletAddress, i)
+    const tokenIdData = TOKEN_OF_OWNER_BY_INDEX_SELECTOR + encodeAddress(walletAddress) + encodeUint256(BigInt(i));
+    const tokenIdHex = await callThorContract(thorUrl, contract, tokenIdData, walletAddress);
+    const tokenId = decodeUint256(tokenIdHex);
+
+    // getTokenInfoByTokenId(tokenId) - parse tokenLevel from result
+    const tokenInfoData = GET_TOKEN_INFO_SELECTOR + encodeUint256(tokenId);
+    const tokenInfoHex = await callThorContract(thorUrl, contract, tokenInfoData, walletAddress);
+
+    // tokenInfo returns: (uint256 tokenId, string tokenURI, uint256 tokenLevel, uint256 b3trToUpgrade)
+    // We need to decode tokenLevel which is the 3rd element (index 2)
+    // For simplicity, we read the raw bytes at offset 64*2 = 128 bytes (after tokenId and offset for string)
+    // Actually the tuple is: tokenId (32 bytes), offset to string (32 bytes), tokenLevel (32 bytes), b3trToUpgrade (32 bytes)
+    // So tokenLevel is at offset 64 (bytes 64-95)
+    const cleanHex = tokenInfoHex.startsWith("0x") ? tokenInfoHex.slice(2) : tokenInfoHex;
+    const tokenLevelHex = cleanHex.slice(128, 192); // bytes 64-95
+    const level = Number(decodeUint256("0x" + tokenLevelHex));
+
+    if (Number.isFinite(level) && level > highestLevel) {
+      highestLevel = level;
+    }
+  }
+
+  if (highestLevel <= 0) return null;
+
+  return {
+    level: highestLevel,
+    name: resolveGmNftName(highestLevel),
+  };
 }
 
 function normalizeBoolString(input: string): string {
@@ -941,8 +1064,17 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     const authed = await requireAuth(config, req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
 
-    // Keep this endpoint shape aligned with the web client and local API server.
-    // Eligibility sync can enrich this later without breaking the client contract.
+    const wallet = authed.wallet;
+
+    // Lookup GM-NFT highest level via VeChain Thor
+    let highestGmNft: { level: number; name: string } | null = null;
+    try {
+      highestGmNft = await getHighestGmNftByOwner(config, wallet);
+    } catch (err) {
+      console.warn("gm_nft_lookup_failed", { wallet, error: String(err) });
+    }
+
+    // Build achievements
     const achievements = [
       {
         key: "vebetter_vote_bonus",
@@ -954,15 +1086,33 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         status: "locked",
         effective_round_id: null,
         source_round_id: null,
+        node_name: null,
+        node_level: null,
+      },
+      {
+        key: "gm_nft",
+        title: "GM-NFT",
+        description: highestGmNft ? `已持有最高等级 GM-NFT：${highestGmNft.name}` : "未检测到 GM-NFT。",
+        badge: "gm_nft",
+        unlocked: !!highestGmNft,
+        multiplier: 1,
+        status: highestGmNft ? "eligible" : "locked",
+        effective_round_id: null,
+        source_round_id: null,
+        node_name: highestGmNft?.name ?? null,
+        node_level: highestGmNft?.level ?? null,
       },
     ];
+
+    const unlockedCount = achievements.filter((a) => a.unlocked).length;
+    const totalMultiplier = achievements.reduce((acc, a) => acc * (a.unlocked ? a.multiplier : 1), 1);
 
     return jsonResponse(config, req, 200, {
       achievements,
       summary: {
-        unlocked_count: 0,
+        unlocked_count: unlockedCount,
         total_count: achievements.length,
-        total_multiplier: 1,
+        total_multiplier: Number(totalMultiplier.toFixed(4)),
       },
     });
   }
