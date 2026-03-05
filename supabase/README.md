@@ -42,7 +42,24 @@ Then configure Vercel:
 If you use the Supabase CLI:
 
 ```bash
-supabase functions deploy api --project-ref tbvkyvxdhrmfprcjyvbk
+bash scripts/ci/deploy_supabase_api.sh
+```
+
+This guarded deploy script enforces the required invariant:
+- deploy with `--no-verify-jwt --use-api`
+- verify `functions list` reports `verify_jwt=false`
+- probe `/health` and `/auth/challenge` for HTTP 200
+
+If you must run the raw command manually, use:
+
+```bash
+supabase functions deploy api --project-ref tbvkyvxdhrmfprcjyvbk --no-verify-jwt --use-api
+```
+
+Then run:
+
+```bash
+bash scripts/ci/check_supabase_public_auth_routes.sh
 ```
 
 You must also configure secrets for the function (e.g. `JWT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, AWS and Dify keys)

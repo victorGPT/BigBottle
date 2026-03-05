@@ -1,0 +1,25 @@
+name: Supabase API Public Routes Guard
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: Optional API base URL override
+        required: false
+        type: string
+
+jobs:
+  public-routes-guard:
+    runs-on: ubuntu-latest
+    env:
+      API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.SUPABASE_API_BASE_URL || 'https://tbvkyvxdhrmfprcjyvbk.supabase.co/functions/v1/api' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate public auth routes
+        run: |
+          set -euo pipefail
+          bash scripts/ci/check_supabase_public_auth_routes.sh "${API_BASE_URL}"

@@ -256,6 +256,10 @@ Config:
 - Edge env vars reserve `SUPABASE_*`, so Supabase credentials are:
   - `BB_SUPABASE_URL`
   - `BB_SUPABASE_SERVICE_ROLE_KEY`
+- Deployment guardrails:
+  - `scripts/ci/deploy_supabase_api.sh` enforces `--no-verify-jwt --use-api` and verifies `verify_jwt=false` after deploy.
+  - `scripts/ci/check_supabase_public_auth_routes.sh` probes `/health` and `/auth/challenge` as public routes.
+  - `.github/workflows/supabase-api-public-routes-guard.yml` runs scheduled drift checks against the public API endpoint.
 - For easy frontend domain changes, keep `CORS_ORIGIN='*'` (default).
 - Phase 2 rewards env vars (same semantics as `apps/api`):
   - `REWARDS_MODE`
