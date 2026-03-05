@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Screen from '../components/Screen';
 import BottomTabBar from '../components/BottomTabBar';
 import { useAuth } from '../../state/auth';
-import { apiGet } from '../../util/api';
+import { apiGet, apiPost } from '../../util/api';
 
 type Submission = {
   id: string;
@@ -11,6 +11,39 @@ type Submission = {
   points_total: number;
   created_at: string;
 };
+
+type RewardsQuote = {
+  points_total: number;
+  points_locked: number;
+  points_available: number;
+  points_per_b3tr: number;
+  conversion_rate_id: string;
+  b3tr_amount_wei: string;
+  b3tr_amount: string;
+};
+
+type RewardClaim = {
+  id: string;
+  client_claim_id: string;
+  wallet_address: string;
+  conversion_rate_id: string;
+  points_per_b3tr_snapshot: number;
+  points_claimed: number;
+  b3tr_amount_wei: string;
+  b3tr_amount: string;
+  status: 'pending' | 'submitted' | 'confirmed' | 'failed';
+  tx_hash: string | null;
+  failure_reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function formatTokenAmount(amount: string, maxDecimals = 2): string {
+  const [whole, frac] = amount.split('.');
+  if (!frac) return amount;
+  const trimmed = frac.slice(0, maxDecimals).replace(/0+$/, '');
+  return trimmed ? `${whole}.${trimmed}` : whole;
+}
 
 export default function DashboardPage() {
   const nav = useNavigate();
@@ -20,7 +53,12 @@ export default function DashboardPage() {
   const token = isLoggedIn ? state.token : null;
 
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [quote, setQuote] = useState<RewardsQuote | null>(null);
+  const [claims, setClaims] = useState<RewardClaim[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isClaiming, setIsClaiming] = useState(false);
+
+  const inflight = useMemo(() => claims.find((c) => c.status === 'pending' || c.status === 'submitted') ?? null, [claims]);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,6 +70,28 @@ export default function DashboardPage() {
         if (!cancelled) setSubmissions(res.submissions);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!token) return;
+      try {
+        const [q, c] = await Promise.all([
+          apiGet<{ quote: RewardsQuote }>('/rewards/quote', token),
+          apiGet<{ claims: RewardClaim[] }>('/rewards/claims?limit=5', token)
+        ]);
+        if (cancelled) return;
+        setQuote(q.quote);
+        setClaims(c.claims);
+      } catch (e) {
+        if (!cancelled) return;
       }
     }
     run();
@@ -57,6 +117,50 @@ export default function DashboardPage() {
       ? `${state.user.wallet_address.slice(0, 6)}...${state.user.wallet_address.slice(-4)}`
       : null;
 
+  async function refreshQuote() {
+    if (!token) return;
+    try {
+      const [q, c] = await Promise.all([
+        apiGet<{ quote: RewardsQuote }>('/rewards/quote', token),
+        apiGet<{ claims: RewardClaim[] }>('/rewards/claims?limit=5', token)
+      ]);
+      setQuote(q.quote);
+      setClaims(c.claims);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function onClaim() {
+    if (!token || isClaiming || inflight) return;
+    if (!quote || quote.points_available <= 0) return;
+
+    setIsClaiming(true);
+    setError(null);
+    try {
+      const clientClaimId = crypto.randomUUID();
+      const res = await apiPost<{ claim: RewardClaim }>(
+        '/rewards/claim',
+        { client_claim_id: clientClaimId },
+        token
+      );
+      setClaims((prev) => {
+        const existing = prev.findIndex((c) => c.id === res.claim.id);
+        if (existing >= 0) {
+          const next = [...prev];
+          next[existing] = res.claim;
+          return next;
+        }
+        return [res.claim, ...prev];
+      });
+      await refreshQuote();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsClaiming(false);
+    }
+  }
+
   return (
     <Screen>
       <div className="relative mx-auto min-h-dvh max-w-[420px] px-5 pb-32 pt-10">
@@ -79,14 +183,29 @@ export default function DashboardPage() {
         </div>
 
         <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
-          <div className="text-[10px] tracking-[0.24em] text-white/40">POINT BALANCE</div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <div className="text-5xl font-semibold tabular-nums">{stats.totalPoints.toLocaleString()}</div>
-            <div className="text-[11px] tracking-[0.22em] text-emerald-300">POINTS</div>
+          <div className="text-[10px] tracking-[0.24em] text-white/40">CLAIMABLE</div>
+          <div className="mt-2 flex items-baseline justify-between">
+            <div className="flex items-baseline gap-2">
+              <div className="text-5xl font-semibold tabular-nums">
+                {quote ? formatTokenAmount(quote.b3tr_amount) : '—'}
+              </div>
+              <div className="text-[11px] tracking-[0.22em] text-emerald-300">B3TR</div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClaim}
+              disabled={!quote || quote.points_available <= 0 || isClaiming || Boolean(inflight) || !isLoggedIn}
+              className="rounded-2xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-black shadow-[0_10px_40px_rgba(16,185,129,0.18)] transition disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.99]"
+            >
+              {inflight ? 'PROCESSING' : isClaiming ? 'PROCESSING…' : 'CLAIM'}
+            </button>
           </div>
-          <div className="mt-2 text-[11px] text-white/45">
-            去 Rewards 页面领取 B3TR（系统代付 Gas）
-          </div>
+          {quote && quote.points_available > 0 && (
+            <div className="mt-2 text-[11px] text-white/45">
+              Available: {quote.points_available.toLocaleString()} points
+            </div>
+          )}
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
