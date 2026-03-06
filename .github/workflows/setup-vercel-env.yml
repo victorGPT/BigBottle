@@ -31,6 +31,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check Vercel Token
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "❌ Error: VERCEL_TOKEN secret is required"
+            echo "Please add it at: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            echo "Get it from: https://vercel.com/account/tokens"
+            exit 1
+          fi
+          echo "✅ VERCEL_TOKEN is configured"
+
       - name: Read Vercel project info
         id: project
         run: |
