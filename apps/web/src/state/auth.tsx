@@ -47,6 +47,7 @@ export function AuthProvider(props: { children: React.ReactNode }) {
     user: null
   }));
 
+  // Initial token validation on mount
   useEffect(() => {
     let cancelled = false;
     async function run() {
@@ -69,6 +70,20 @@ export function AuthProvider(props: { children: React.ReactNode }) {
     run();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // Listen for 401 unauthorized events from API calls and auto-logout
+  useEffect(() => {
+    function handleUnauthorized() {
+      // Token is invalid, clear it and set to anonymous state
+      writeToken(null);
+      setState({ status: 'anonymous', token: null, user: null });
+    }
+
+    window.addEventListener('bb:auth:unauthorized', handleUnauthorized);
+    return () => {
+      window.removeEventListener('bb:auth:unauthorized', handleUnauthorized);
     };
   }, []);
 
@@ -110,4 +125,3 @@ export async function exchangeWalletSignatureForToken(input: {
 }): Promise<{ access_token: string; user: ApiUser }> {
   return apiPost('/auth/verify', { challenge_id: input.challenge_id, signature: input.signature }, null);
 }
-

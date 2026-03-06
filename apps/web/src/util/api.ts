@@ -38,6 +38,14 @@ async function request<T>(
 
   if (!res.ok) {
     const msg = typeof json === 'object' && json && 'error' in json ? String((json as any).error) : res.statusText;
+    
+    // Emit 401 event for auth state to handle automatic logout
+    if (res.status === 401) {
+      window.dispatchEvent(new CustomEvent('bb:auth:unauthorized', { 
+        detail: { path, error: msg } 
+      }));
+    }
+    
     throw new Error(msg || `HTTP ${res.status}`);
   }
 
