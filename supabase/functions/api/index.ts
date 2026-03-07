@@ -526,7 +526,7 @@ function resolveGmNftName(level: number): string {
 // ABI fragments as hex selectors for Thor contract calls
 const BALANCE_OF_SELECTOR = "0x70a08231"; // balanceOf(address)
 const TOKEN_OF_OWNER_BY_INDEX_SELECTOR = "0x2f745c59"; // tokenOfOwnerByIndex(address,uint256)
-const GET_TOKEN_INFO_SELECTOR = "0x558866c7"; // getTokenInfoByTokenId(uint256)
+const GET_TOKEN_INFO_SELECTOR = "0x643ce418"; // getTokenInfoByTokenId(uint256)
 
 async function callThorContract(
   thorUrl: string,
