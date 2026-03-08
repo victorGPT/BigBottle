@@ -74,6 +74,11 @@ jobs:
           echo "Project ID: $PROJECT_ID"
           echo "Project Name: $PROJECT_NAME"
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.22.0
+
       - name: Setup Vercel CLI
         run: npm i -g vercel@latest
 
