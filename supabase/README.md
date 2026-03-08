@@ -10,7 +10,7 @@ This folder contains SQL migrations for the MVP database schema.
    - `supabase/migrations/20260208_receipt_dedup.sql`
    - `supabase/migrations/20260218_z_account_summary.sql`
    - `supabase/migrations/20260217_vote_mapping_and_bonus.sql`
-   - `supabase/migrations/20260224_vechain_node_holder_daily.sql`
+   - `supabase/migrations/20260225_vechain_node_holder_daily.sql`
 
 ## Tables
 
