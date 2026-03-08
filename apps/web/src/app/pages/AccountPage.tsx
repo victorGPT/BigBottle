@@ -35,6 +35,7 @@ type AccountAchievement = {
   title: string;
   description: string;
   badge: string;
+  tag_label?: string | null;
   unlocked: boolean;
   multiplier: number;
   status: string;
@@ -290,13 +291,15 @@ export default function AccountPage() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   {displayAchievements.map((item) => {
                     const label =
-                      item.key === 'vebetter_vote_bonus'
-                        ? '投票用户'
-                        : item.key === 'gm_nft'
-                          ? item.unlocked && item.node_name
-                            ? `GM-NFT · ${item.node_name}`
-                            : 'GM-NFT'
-                          : item.title;
+                      (typeof item.tag_label === 'string' && item.tag_label.trim())
+                        ? item.tag_label.trim()
+                        : item.key === 'vebetter_vote_bonus'
+                          ? '投票用户'
+                          : item.key === 'gm_nft'
+                            ? item.unlocked && item.node_name
+                              ? `GM-NFT · ${item.node_name}`
+                              : 'GM-NFT'
+                            : item.title;
 
                     return (
                       <div

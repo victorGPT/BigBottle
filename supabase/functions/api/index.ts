@@ -211,6 +211,54 @@ type DbReceiptSubmission = {
   updated_at: string;
 };
 
+type DbVoteBonusEligibility = {
+  effective_round_id: number;
+  source_round_id: number;
+  passport_address: string;
+  user_id: string | null;
+  bonus_type: string;
+  bonus_multiplier: number | string;
+  status: string;
+  source: string;
+  computed_at: string;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type DbAchievementDefinition = {
+  key: string;
+  title: string;
+  badge: string;
+  enabled: boolean;
+  sort_order: number;
+  base_multiplier: number | string;
+  locked_tag_label: string | null;
+  unlocked_tag_label_template: string | null;
+  locked_description: string | null;
+  unlocked_description_template: string | null;
+  level_config: unknown;
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+type AchievementDefinition = {
+  key: string;
+  title: string;
+  badge: string;
+  enabled: boolean;
+  sort_order: number;
+  base_multiplier: number;
+  locked_tag_label: string | null;
+  unlocked_tag_label_template: string | null;
+  locked_description: string;
+  unlocked_description_template: string;
+  level_names: Record<number, string>;
+  metadata: Record<string, unknown>;
+};
+
 function ensureOk<T>(res: { data: T; error: unknown | null }, message: string): T {
   if (res.error) {
     const errText = typeof res.error === "object" ? JSON.stringify(res.error) : String(res.error);
@@ -331,6 +379,46 @@ function createRepo(supabase: SupabaseClient) {
       const res = await supabase.rpc("bb_user_points_total", { user_id: userId });
       const data = ensureOk(res, "Failed to compute user points total");
       return typeof data === "number" && Number.isFinite(data) ? data : 0;
+    },
+
+    async getLatestUserBonusEligibility(input: {
+      user_id: string;
+      wallet_address: string;
+      bonus_type: string;
+      effective_round_id?: number;
+    }): Promise<DbVoteBonusEligibility | null> {
+      const walletLower = input.wallet_address.trim().toLowerCase();
+      const orFilter = `user_id.eq.${input.user_id},passport_address.eq.${walletLower}`;
+      const query = supabase
+        .from("bigbottle_vote_bonus_eligibility")
+        .select("*")
+        .eq("bonus_type", input.bonus_type)
+        .eq("status", "eligible")
+        .or(orFilter);
+      const filteredQuery =
+        input.effective_round_id === undefined
+          ? query
+          : query.eq("effective_round_id", input.effective_round_id);
+      const res = await filteredQuery
+        .order("effective_round_id", { ascending: false })
+        .order("computed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const data = ensureOk(res, "Failed to fetch user bonus eligibility");
+      return (data as DbVoteBonusEligibility) ?? null;
+    },
+
+    async listAchievementDefinitions(keys?: string[]): Promise<DbAchievementDefinition[]> {
+      let query = supabase
+        .from("achievement_definitions")
+        .select("*")
+        .order("sort_order", { ascending: true })
+        .order("key", { ascending: true });
+      if (keys && keys.length > 0) {
+        query = query.in("key", keys);
+      }
+      const res = await query;
+      return ensureOk(res, "Failed to list achievement definitions") as DbAchievementDefinition[];
     },
 
     async getVerifiedSubmissionByFingerprint(
@@ -504,7 +592,7 @@ async function requireAuth(config: AppConfig, req: Request): Promise<AuthedUser 
   return await verifyAccessToken(config, m[1] ?? "");
 }
 
-// --- GM-NFT lookup ---
+// --- Achievements + GM-NFT lookup ---
 const GM_NFT_LEVEL_NAMES: Record<number, string> = {
   0: "No GM NFT",
   1: "Earth",
@@ -519,8 +607,117 @@ const GM_NFT_LEVEL_NAMES: Record<number, string> = {
   10: "Galaxy",
 };
 
-function resolveGmNftName(level: number): string {
-  return GM_NFT_LEVEL_NAMES[level] ?? `Level ${level}`;
+const DEFAULT_ACHIEVEMENT_DEFINITIONS: Record<string, AchievementDefinition> = {
+  vebetter_vote_bonus: {
+    key: "vebetter_vote_bonus",
+    title: "VeBetterDAO Voter",
+    badge: "governance",
+    enabled: true,
+    sort_order: 10,
+    base_multiplier: 1,
+    locked_tag_label: "投票用户",
+    unlocked_tag_label_template: "投票用户",
+    locked_description: "在 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。",
+    unlocked_description_template: "在 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。",
+    level_names: {},
+    metadata: {},
+  },
+  gm_nft: {
+    key: "gm_nft",
+    title: "GM-NFT",
+    badge: "gm_nft",
+    enabled: true,
+    sort_order: 20,
+    base_multiplier: 1,
+    locked_tag_label: "GM-NFT",
+    unlocked_tag_label_template: "GM-NFT · {{level_name}}",
+    locked_description: "未检测到 GM-NFT。",
+    unlocked_description_template: "已持有最高等级 GM-NFT：{{level_name}}",
+    level_names: GM_NFT_LEVEL_NAMES,
+    metadata: {},
+  },
+};
+
+function toSafeMultiplier(value: unknown, fallback = 1): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(1, n);
+}
+
+function parseLevelNames(input: unknown, fallback: Record<number, string>): Record<number, string> {
+  if (!isRecord(input)) return fallback;
+  const container = isRecord(input.level_names) ? input.level_names : input;
+  const entries = Object.entries(container)
+    .map(([key, value]) => {
+      const level = Number(key);
+      const name = typeof value === "string" ? value.trim() : "";
+      return Number.isFinite(level) && name ? [level, name] as const : null;
+    })
+    .filter((entry): entry is readonly [number, string] => entry !== null);
+  return entries.length > 0 ? Object.fromEntries(entries) : fallback;
+}
+
+function parseMetadata(input: unknown): Record<string, unknown> {
+  return isRecord(input) ? input : {};
+}
+
+function resolveAchievementDefinition(
+  row: DbAchievementDefinition | null | undefined,
+  fallback: AchievementDefinition,
+): AchievementDefinition {
+  return {
+    key: row?.key?.trim() || fallback.key,
+    title: typeof row?.title === "string" && row.title.trim() ? row.title.trim() : fallback.title,
+    badge: typeof row?.badge === "string" && row.badge.trim() ? row.badge.trim() : fallback.badge,
+    enabled: typeof row?.enabled === "boolean" ? row.enabled : fallback.enabled,
+    sort_order:
+      typeof row?.sort_order === "number" && Number.isFinite(row.sort_order)
+        ? row.sort_order
+        : fallback.sort_order,
+    base_multiplier: toSafeMultiplier(row?.base_multiplier, fallback.base_multiplier),
+    locked_tag_label:
+      typeof row?.locked_tag_label === "string" && row.locked_tag_label.trim()
+        ? row.locked_tag_label.trim()
+        : fallback.locked_tag_label,
+    unlocked_tag_label_template:
+      typeof row?.unlocked_tag_label_template === "string" && row.unlocked_tag_label_template.trim()
+        ? row.unlocked_tag_label_template.trim()
+        : fallback.unlocked_tag_label_template,
+    locked_description:
+      typeof row?.locked_description === "string" && row.locked_description.trim()
+        ? row.locked_description.trim()
+        : fallback.locked_description,
+    unlocked_description_template:
+      typeof row?.unlocked_description_template === "string" && row.unlocked_description_template.trim()
+        ? row.unlocked_description_template.trim()
+        : fallback.unlocked_description_template,
+    level_names: parseLevelNames(row?.level_config, fallback.level_names),
+    metadata: parseMetadata(row?.metadata),
+  };
+}
+
+function resolveAchievementDefinitions(rows: DbAchievementDefinition[]): AchievementDefinition[] {
+  const rowMap = new Map(rows.map((row) => [row.key, row]));
+  return Object.values(DEFAULT_ACHIEVEMENT_DEFINITIONS)
+    .map((fallback) => resolveAchievementDefinition(rowMap.get(fallback.key), fallback))
+    .filter((item) => item.enabled)
+    .sort((a, b) => a.sort_order - b.sort_order || a.key.localeCompare(b.key));
+}
+
+function renderTemplate(template: string, vars: Record<string, string | number | null | undefined>): string {
+  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
+    const value = vars[key];
+    return value === null || value === undefined ? "" : String(value);
+  });
+}
+
+function resolveConfiguredLevelName(def: AchievementDefinition, level: number | null, fallback?: string | null): string | null {
+  if (level === null || !Number.isFinite(level)) return fallback ?? null;
+  return def.level_names[level] ?? fallback ?? `Level ${level}`;
+}
+
+function resolveGmNftName(level: number, levelNames: Record<number, string> = GM_NFT_LEVEL_NAMES): string {
+  return levelNames[level] ?? `Level ${level}`;
 }
 
 // ABI fragments as hex selectors for Thor contract calls
@@ -1068,8 +1265,30 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
 
     const wallet = authed.wallet;
+    const repo = getRepo();
 
-    // Lookup GM-NFT highest level via VeChain Thor
+    let definitions = Object.values(DEFAULT_ACHIEVEMENT_DEFINITIONS)
+      .filter((item) => item.enabled)
+      .sort((a, b) => a.sort_order - b.sort_order || a.key.localeCompare(b.key));
+    try {
+      definitions = resolveAchievementDefinitions(
+        await repo.listAchievementDefinitions(Object.keys(DEFAULT_ACHIEVEMENT_DEFINITIONS)),
+      );
+    } catch (err) {
+      console.warn("achievement_definition_load_failed", { error: String(err) });
+    }
+
+    let vebetterVote: DbVoteBonusEligibility | null = null;
+    try {
+      vebetterVote = await repo.getLatestUserBonusEligibility({
+        user_id: authed.sub,
+        wallet_address: wallet,
+        bonus_type: "vebetter_vote_bonus",
+      });
+    } catch (err) {
+      console.warn("vote_bonus_lookup_failed", { wallet, userId: authed.sub, error: String(err) });
+    }
+
     let highestGmNft: { level: number; name: string } | null = null;
     try {
       highestGmNft = await getHighestGmNftByOwner(config, wallet);
@@ -1077,13 +1296,83 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       console.warn("gm_nft_lookup_failed", { wallet, error: String(err) });
     }
 
-    // Build achievements
-    const achievements = [
-      {
-        key: "vebetter_vote_bonus",
-        title: "VeBetterDAO Voter",
-        description: "在 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。",
-        badge: "governance",
+    const achievements = definitions.map((definition) => {
+      if (definition.key === "vebetter_vote_bonus") {
+        const unlocked = Boolean(vebetterVote);
+        const multiplier = unlocked
+          ? toSafeMultiplier(vebetterVote?.bonus_multiplier, definition.base_multiplier)
+          : 1;
+        const description = unlocked
+          ? renderTemplate(definition.unlocked_description_template, {
+              multiplier,
+              effective_round_id: vebetterVote?.effective_round_id ?? null,
+              source_round_id: vebetterVote?.source_round_id ?? null,
+            })
+          : definition.locked_description;
+        const tagLabel = unlocked
+          ? renderTemplate(definition.unlocked_tag_label_template ?? definition.title, {
+              multiplier,
+              effective_round_id: vebetterVote?.effective_round_id ?? null,
+            })
+          : (definition.locked_tag_label ?? definition.title);
+
+        return {
+          key: definition.key,
+          title: definition.title,
+          description,
+          badge: definition.badge,
+          tag_label: tagLabel,
+          unlocked,
+          multiplier,
+          status: unlocked ? (vebetterVote?.status ?? "eligible") : "locked",
+          effective_round_id: unlocked ? (vebetterVote?.effective_round_id ?? null) : null,
+          source_round_id: unlocked ? (vebetterVote?.source_round_id ?? null) : null,
+          node_name: null,
+          node_level: null,
+        };
+      }
+
+      if (definition.key === "gm_nft") {
+        const unlocked = Boolean(highestGmNft);
+        const gmLevel = highestGmNft?.level ?? null;
+        const gmName = resolveConfiguredLevelName(definition, gmLevel, highestGmNft?.name ?? null);
+        const multiplier = unlocked ? definition.base_multiplier : 1;
+        const description = unlocked
+          ? renderTemplate(definition.unlocked_description_template, {
+              level: gmLevel,
+              level_name: gmName,
+              multiplier,
+            })
+          : definition.locked_description;
+        const tagLabel = unlocked
+          ? renderTemplate(definition.unlocked_tag_label_template ?? definition.title, {
+              level: gmLevel,
+              level_name: gmName,
+            })
+          : (definition.locked_tag_label ?? definition.title);
+
+        return {
+          key: definition.key,
+          title: definition.title,
+          description,
+          badge: definition.badge,
+          tag_label: tagLabel,
+          unlocked,
+          multiplier,
+          status: unlocked ? "eligible" : "locked",
+          effective_round_id: null,
+          source_round_id: null,
+          node_name: gmName,
+          node_level: gmLevel,
+        };
+      }
+
+      return {
+        key: definition.key,
+        title: definition.title,
+        description: definition.locked_description,
+        badge: definition.badge,
+        tag_label: definition.locked_tag_label ?? definition.title,
         unlocked: false,
         multiplier: 1,
         status: "locked",
@@ -1091,21 +1380,8 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         source_round_id: null,
         node_name: null,
         node_level: null,
-      },
-      {
-        key: "gm_nft",
-        title: "GM-NFT",
-        description: highestGmNft ? `已持有最高等级 GM-NFT：${highestGmNft.name}` : "未检测到 GM-NFT。",
-        badge: "gm_nft",
-        unlocked: !!highestGmNft,
-        multiplier: 1,
-        status: highestGmNft ? "eligible" : "locked",
-        effective_round_id: null,
-        source_round_id: null,
-        node_name: highestGmNft?.name ?? null,
-        node_level: highestGmNft?.level ?? null,
-      },
-    ];
+      };
+    });
 
     const unlockedCount = achievements.filter((a) => a.unlocked).length;
     const totalMultiplier = achievements.reduce((acc, a) => acc * (a.unlocked ? a.multiplier : 1), 1);
