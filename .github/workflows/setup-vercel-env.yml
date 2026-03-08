@@ -38,6 +38,11 @@ on:
         required: false
         type: boolean
         default: true
+      deploy_production:
+        description: 'Deploy production instead of preview when redeploy=true?'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   setup-vercel:
@@ -108,23 +113,40 @@ jobs:
 
       - name: Build Project Artifacts
         if: github.event.inputs.redeploy == 'true'
-        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ "${{ github.event.inputs.deploy_production }}" = "true" ]; then
+            vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+          else
+            vercel build --token=${{ secrets.VERCEL_TOKEN }}
+          fi
         env:
           VERCEL_ORG_ID: ${{ steps.project.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.project.outputs.project_id }}
 
       - name: Deploy Project Artifacts to Vercel
         if: github.event.inputs.redeploy == 'true'
-        run: vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ "${{ github.event.inputs.deploy_production }}" = "true" ]; then
+            vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+          else
+            vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
+          fi
         env:
           VERCEL_ORG_ID: ${{ steps.project.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.project.outputs.project_id }}
 
       - name: Summary
         run: |
+          if [ "${{ github.event.inputs.deploy_production }}" = "true" ]; then
+            DEPLOY_TARGET=production
+          else
+            DEPLOY_TARGET=preview
+          fi
+
           echo "## ✅ Vercel Setup Complete"
           echo ""
           echo "**Project:** ${{ steps.project.outputs.project_name }} (${{ steps.project.outputs.project_id }})"
           echo "**VITE_API_URL:** ${{ github.event.inputs.api_url }}"
           echo "**Environments:** Production=${{ github.event.inputs.set_production }}, Preview=${{ github.event.inputs.set_preview }}"
           echo "**Redeployed:** ${{ github.event.inputs.redeploy }}"
+          echo "**Deploy target:** ${DEPLOY_TARGET}"
