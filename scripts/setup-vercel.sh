@@ -24,8 +24,14 @@ fi
 echo "✅ Vercel CLI 已配置"
 echo ""
 
-# 项目信息
-PROJECT_NAME="web"  # 从 .vercel/project.json
+# 项目信息（以仓库根目录 .vercel/project.json 为准）
+ROOT_PROJECT_JSON=".vercel/project.json"
+if [ ! -f "$ROOT_PROJECT_JSON" ]; then
+    echo "❌ 缺少 $ROOT_PROJECT_JSON"
+    exit 1
+fi
+
+PROJECT_NAME=$(jq -r '.projectName' "$ROOT_PROJECT_JSON")
 echo "项目: $PROJECT_NAME"
 echo ""
 
