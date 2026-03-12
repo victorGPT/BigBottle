@@ -14,7 +14,7 @@ type AuthState =
 
 type AuthContextValue = {
   state: AuthState;
-  setToken: (token: string) => void;
+  setToken: (token: string, user?: ApiUser) => Promise<void>;
   logout: () => void;
 };
 
@@ -90,16 +90,24 @@ export function AuthProvider(props: { children: React.ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       state,
-      setToken(token) {
+      async setToken(token, user) {
         writeToken(token);
+
+        if (user) {
+          setState({ status: 'logged_in', token, user });
+          return;
+        }
+
         setState({ status: 'loading', token, user: null });
-        // Re-validate token
-        apiGet<{ user: ApiUser }>('/me', token)
-          .then((res) => setState({ status: 'logged_in', token, user: res.user }))
-          .catch(() => {
-            writeToken(null);
-            setState({ status: 'anonymous', token: null, user: null });
-          });
+
+        try {
+          const res = await apiGet<{ user: ApiUser }>('/me', token);
+          setState({ status: 'logged_in', token, user: res.user });
+        } catch {
+          writeToken(null);
+          setState({ status: 'anonymous', token: null, user: null });
+          throw new Error('/me: unauthorized');
+        }
       },
       logout() {
         writeToken(null);

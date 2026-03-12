@@ -151,7 +151,13 @@ export default function AccountPage() {
       // Yield to the event loop briefly before starting the typed-data signing flow.
       await new Promise((resolve) => window.setTimeout(resolve, 450));
 
-      const challenge = await apiPost<ChallengeResponse>('/auth/challenge', { address: addr }, null);
+      let challenge: ChallengeResponse;
+      try {
+        challenge = await apiPost<ChallengeResponse>('/auth/challenge', { address: addr }, null);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`/auth/challenge: ${msg}`);
+      }
 
       const signTypedData = async (domain: Record<string, unknown>) =>
         requestTypedData(domain, challenge.typed_data.types, challenge.typed_data.value, {
@@ -166,19 +172,37 @@ export default function AccountPage() {
         const hasChainId = Object.prototype.hasOwnProperty.call(challenge.typed_data.domain, 'chainId');
         const shouldRetryWithoutChainId = hasChainId && msg.toLowerCase().includes('invalid signed data message');
 
-        if (!shouldRetryWithoutChainId) throw e;
+        if (!shouldRetryWithoutChainId) throw new Error(`wallet_sign: ${msg}`);
 
         const { chainId: _unused, ...domainWithoutChainId } = challenge.typed_data.domain;
-        sig = await signTypedData(domainWithoutChainId);
+        try {
+          sig = await signTypedData(domainWithoutChainId);
+        } catch (retryError) {
+          const retryMsg = retryError instanceof Error ? retryError.message : String(retryError);
+          throw new Error(`wallet_sign_legacy_domain: ${retryMsg}`);
+        }
       }
 
-      const verify = await apiPost<VerifyResponse>(
-        '/auth/verify',
-        { challenge_id: challenge.challenge_id, signature: sig },
-        null
-      );
+      let verify: VerifyResponse;
+      try {
+        verify = await apiPost<VerifyResponse>(
+          '/auth/verify',
+          { challenge_id: challenge.challenge_id, signature: sig },
+          null
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`/auth/verify: ${msg}`);
+      }
 
-      setToken(verify.access_token);
+      try {
+        await apiGet<{ user: VerifyResponse['user'] }>('/me', verify.access_token);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`/me: ${msg}`);
+      }
+
+      await setToken(verify.access_token, verify.user);
       nav('/', { replace: true });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
