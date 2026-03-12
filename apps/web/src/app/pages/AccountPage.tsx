@@ -128,14 +128,23 @@ export default function AccountPage() {
     setError(null);
     setIsBusy(true);
     try {
-      const hasInjectedVeWorld =
-        typeof window !== 'undefined' && Boolean((window as unknown as { vechain?: unknown }).vechain);
+      const vechainProvider =
+        typeof window !== 'undefined'
+          ? ((window as unknown as { vechain?: { isInAppBrowser?: boolean } }).vechain ?? null)
+          : null;
+      const hasInjectedVeWorld = Boolean(vechainProvider);
+      const isVeWorldInAppBrowser = Boolean(vechainProvider?.isInAppBrowser);
 
       // Prefer VeWorld when injected, but keep other wallets (Sync2/WalletConnect) available.
       if (hasInjectedVeWorld && source !== 'veworld') setSource('veworld');
 
-      const res = await connect();
-      const addr = (res?.account ?? connectedAddress) as string | null;
+      // In VeWorld in-app browser, account is often already injected and calling connect() again
+      // can fail with a generic "load failed" before we ever reach JWT challenge/verify.
+      let addr = connectedAddress;
+      if (!addr || !isVeWorldInAppBrowser) {
+        const res = await connect();
+        addr = (res?.account ?? connectedAddress) as string | null;
+      }
       if (!addr) throw new Error('wallet_not_connected');
 
       // VeWorld iOS in-app browser can be flaky when multiple signing requests are fired back-to-back.
