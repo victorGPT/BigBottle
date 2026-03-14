@@ -39,7 +39,7 @@ Then configure Vercel:
 
 ### Deploy (CLI)
 
-If you use the Supabase CLI:
+For this repo, `scripts/ci/deploy_supabase_api.sh` is the **only canonical deploy path** for the `api` Edge Function:
 
 ```bash
 bash scripts/ci/deploy_supabase_api.sh
@@ -50,13 +50,11 @@ This guarded deploy script enforces the required invariant:
 - verify `functions list` reports `verify_jwt=false`
 - probe `/health` and `/auth/challenge` for HTTP 200
 
-If you must run the raw command manually, use:
+Repository workflows and scripts must not add raw `supabase functions deploy api ...` calls.
+Use the canonical script instead; `.github/workflows/supabase-api-deploy-guard-ci.yml` and
+`scripts/ci/check_supabase_api_deploy_canonical.sh` enforce that rule.
 
-```bash
-supabase functions deploy api --project-ref tbvkyvxdhrmfprcjyvbk --no-verify-jwt --use-api
-```
-
-Then run:
+To verify an already-deployed function without redeploying, run:
 
 ```bash
 bash scripts/ci/check_supabase_public_auth_routes.sh

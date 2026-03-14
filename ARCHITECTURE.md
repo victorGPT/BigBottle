@@ -257,9 +257,12 @@ Config:
   - `BB_SUPABASE_URL`
   - `BB_SUPABASE_SERVICE_ROLE_KEY`
 - Deployment guardrails:
-  - `scripts/ci/deploy_supabase_api.sh` enforces `--no-verify-jwt --use-api` and verifies `verify_jwt=false` after deploy.
+  - `scripts/ci/deploy_supabase_api.sh` is the canonical deploy path, enforces `--no-verify-jwt --use-api`, and verifies `verify_jwt=false` after deploy.
   - `scripts/ci/check_supabase_public_auth_routes.sh` probes `/health` and `/auth/challenge` as public routes.
+  - `scripts/ci/check_supabase_api_deploy_canonical.sh` rejects raw `supabase functions deploy api ...` usage outside the canonical deploy script.
+  - `scripts/setup-supabase.sh` delegates interactive deploys to the canonical deploy script instead of issuing a raw deploy directly.
   - `.github/workflows/supabase-api-public-routes-guard.yml` runs scheduled drift checks against the public API endpoint.
+  - `.github/workflows/supabase-api-deploy-guard-ci.yml` runs the shell guard tests plus the static canonical-deploy check on PRs.
 - For easy frontend domain changes, keep `CORS_ORIGIN='*'` (default).
 - Phase 2 rewards env vars (same semantics as `apps/api`):
   - `REWARDS_MODE`

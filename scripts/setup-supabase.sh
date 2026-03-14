@@ -2,8 +2,9 @@
 # Supabase Edge Function 配置脚本
 # 设置所需的 secrets 以启用认证和 API 功能
 
-set -e
+set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_REF="tbvkyvxdhrmfprcjyvbk"
 echo "=== BigBottle Supabase 配置 ==="
 echo "项目: $PROJECT_REF"
@@ -86,15 +87,20 @@ echo ""
 echo "=== 部署 Edge Function ==="
 read -p "是否部署 Edge Function? (y/n): " DEPLOY
 if [ "$DEPLOY" = "y" ]; then
-    echo "部署中..."
-    supabase functions deploy api --project-ref $PROJECT_REF --no-verify-jwt --use-api
-    echo "✅ Edge Function 已部署"
+    echo "通过 canonical 脚本部署中..."
+    SUPABASE_PROJECT_REF="$PROJECT_REF" \
+      bash "${SCRIPT_DIR}/ci/deploy_supabase_api.sh"
+    echo "✅ Edge Function 已通过 canonical 脚本部署"
 fi
 
 echo ""
 echo "=== 验证 ==="
-echo "测试 health 端点:"
-curl -s https://$PROJECT_REF.supabase.co/functions/v1/api/health && echo " ✅" || echo " ❌ (可能需要等待部署完成)"
+API_BASE_URL="https://$PROJECT_REF.supabase.co/functions/v1/api"
+if bash "${SCRIPT_DIR}/ci/check_supabase_public_auth_routes.sh" "$API_BASE_URL"; then
+    echo "✅ Public auth routes 验证通过"
+else
+    echo "❌ Public auth routes 验证失败 (可能需要等待部署完成)"
+fi
 
 echo ""
 echo "完成!"
