@@ -10,7 +10,7 @@ import './types.js';
 import { loadConfig } from './config.js';
 import { buildLoginTypedData, verifyLoginSignature } from './auth.js';
 import { createRepo, createSupabaseAdmin, type DbRewardClaim } from './supabase.js';
-import { computeTotalPoints } from './scoring.js';
+import { applyPointsMultiplier, computeAdditiveBonusMultiplier, computeTotalPoints } from './scoring.js';
 import { createS3Client, deleteObject, headObject, presignGetObject, presignPutObject } from './s3.js';
 import { extractDifyReceiptPayload, runDify } from './dify.js';
 import { isUniqueViolation } from './postgres-errors.js';
@@ -76,6 +76,9 @@ const AccountAchievementsQuery = z.object({
   effective_round_id: z.coerce.number().int().positive().optional()
 });
 
+const VEBETTER_VOTE_BONUS_MULTIPLIER = 10;
+const GM_NFT_BONUS_MULTIPLIER = 10;
+
 function requireAuth() {
   return async function authenticate(request: any, reply: any) {
     try {
@@ -87,10 +90,8 @@ function requireAuth() {
   };
 }
 
-function toSafeMultiplier(value: unknown, fallback = 1): number {
-  const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(1, n);
+function computeAchievementTotalMultiplier(items: Array<{ unlocked: boolean; multiplier: number }>): number {
+  return computeAdditiveBonusMultiplier(items.filter((item) => item.unlocked).map((item) => item.multiplier));
 }
 
 const VECHAIN_MAINNET_THOR_URL =
@@ -191,6 +192,37 @@ async function getHighestGmNftByOwner(walletAddress: string): Promise<{ level: n
     level: highestLevel,
     name: resolveGmNftName(highestLevel)
   };
+}
+
+async function getReceiptBonusMultiplier(input: {
+  repo: ReturnType<typeof createRepo>;
+  userId: string;
+  wallet: string;
+  effectiveRoundId?: number;
+  log?: { warn: (obj: unknown, msg?: string) => void };
+}): Promise<number> {
+  const multipliers: number[] = [];
+
+  try {
+    const vebetterVote = await input.repo.getLatestUserBonusEligibility({
+      user_id: input.userId,
+      wallet_address: input.wallet,
+      bonus_type: 'vebetter_vote_bonus',
+      ...(input.effectiveRoundId === undefined ? {} : { effective_round_id: input.effectiveRoundId })
+    });
+    if (vebetterVote) multipliers.push(VEBETTER_VOTE_BONUS_MULTIPLIER);
+  } catch (err) {
+    input.log?.warn({ err, wallet: input.wallet, userId: input.userId }, 'vote_bonus_lookup_failed');
+  }
+
+  try {
+    const highestGmNft = await getHighestGmNftByOwner(input.wallet);
+    if (highestGmNft) multipliers.push(GM_NFT_BONUS_MULTIPLIER);
+  } catch (err) {
+    input.log?.warn({ err, wallet: input.wallet }, 'gm_nft_lookup_failed');
+  }
+
+  return computeAdditiveBonusMultiplier(multipliers);
 }
 
 async function main() {
@@ -352,7 +384,7 @@ async function main() {
     }
 
     const unlocked = Boolean(vebetterVote);
-    const multiplier = unlocked ? toSafeMultiplier(vebetterVote?.bonus_multiplier, 1) : 1;
+    const multiplier = unlocked ? VEBETTER_VOTE_BONUS_MULTIPLIER : 1;
 
     const gmUnlocked = Boolean(highestGmNft);
     const gmLevel = highestGmNft?.level ?? null;
@@ -380,7 +412,7 @@ async function main() {
           : '未检测到 GM-NFT。',
         badge: 'gm_nft',
         unlocked: gmUnlocked,
-        multiplier: 1,
+        multiplier: gmUnlocked ? GM_NFT_BONUS_MULTIPLIER : 1,
         status: gmUnlocked ? 'eligible' : 'locked',
         effective_round_id: null,
         source_round_id: null,
@@ -389,7 +421,7 @@ async function main() {
       }
     ];
 
-    const totalMultiplier = achievements.reduce((acc, item) => acc * (item.unlocked ? item.multiplier : 1), 1);
+    const totalMultiplier = computeAchievementTotalMultiplier(achievements);
     const unlockedCount = achievements.filter((item) => item.unlocked).length;
 
     return reply.send({
@@ -689,7 +721,20 @@ async function main() {
       const timeThreshold = normalizeBoolString(timeThresholdRaw);
 
       const ok = retinfoIsAvaild === 'true' && timeThreshold === 'false';
-      const { totalPoints } = computeTotalPoints(payload.drinkList);
+      const { totalPoints: basePoints } = computeTotalPoints(payload.drinkList);
+      const bonusMultiplier =
+        ok && basePoints > 0
+          ? await getReceiptBonusMultiplier({
+              repo,
+              userId,
+              wallet,
+              ...(config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID === undefined
+                ? {}
+                : { effectiveRoundId: config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID }),
+              log: request.log
+            })
+          : 1;
+      const totalPoints = ok ? applyPointsMultiplier(basePoints, bonusMultiplier) : 0;
 
       const finalStatus = ok ? (totalPoints > 0 ? 'verified' : 'not_claimable') : 'rejected';
       const receiptFingerprint =
@@ -709,7 +754,7 @@ async function main() {
           receipt_time_raw: receiptTimeRaw,
           retinfo_is_availd: retinfoIsAvaild,
           time_threshold: timeThreshold,
-          points_total: ok ? totalPoints : 0,
+          points_total: totalPoints,
           receipt_fingerprint: finalStatus === 'verified' ? receiptFingerprint : null,
           rejection_code: null,
           duplicate_of: null,

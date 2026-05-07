@@ -789,7 +789,7 @@ const DEFAULT_ACHIEVEMENT_DEFINITIONS: Record<string, AchievementDefinition> = {
     badge: "governance",
     enabled: true,
     sort_order: 10,
-    base_multiplier: 1,
+    base_multiplier: 10,
     locked_tag_label: "投票用户",
     unlocked_tag_label_template: "投票用户",
     locked_description: "在 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。",
@@ -803,7 +803,7 @@ const DEFAULT_ACHIEVEMENT_DEFINITIONS: Record<string, AchievementDefinition> = {
     badge: "gm_nft",
     enabled: true,
     sort_order: 20,
-    base_multiplier: 1,
+    base_multiplier: 10,
     locked_tag_label: "GM-NFT",
     unlocked_tag_label_template: "GM-NFT · {{level_name}}",
     locked_description: "未检测到 GM-NFT。",
@@ -817,6 +817,26 @@ function toSafeMultiplier(value: unknown, fallback = 1): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(1, n);
+}
+
+function computeAdditiveBonusMultiplier(multipliers: number[]): number {
+  const unlockedMultipliers = multipliers.filter((value) => Number.isFinite(value) && value > 1);
+  if (unlockedMultipliers.length === 0) return 1;
+  return unlockedMultipliers.reduce((sum, value) => sum + value, 0);
+}
+
+function applyPointsMultiplier(basePoints: number, multiplier: number): number {
+  if (!Number.isInteger(basePoints) || basePoints < 0) {
+    throw new Error("base_points_invalid");
+  }
+  if (!Number.isFinite(multiplier) || multiplier < 1) {
+    throw new Error("points_multiplier_invalid");
+  }
+  return Math.floor(basePoints * multiplier);
+}
+
+function computeAchievementTotalMultiplier(items: Array<{ unlocked: boolean; multiplier: number }>): number {
+  return computeAdditiveBonusMultiplier(items.filter((item) => item.unlocked).map((item) => item.multiplier));
 }
 
 function parseLevelNames(input: unknown, fallback: Record<number, string>): Record<number, string> {
@@ -994,6 +1014,35 @@ async function getHighestGmNftByOwner(
     level: highestLevel,
     name: resolveGmNftName(highestLevel),
   };
+}
+
+async function getReceiptBonusMultiplier(input: {
+  config: AppConfig;
+  repo: ReturnType<typeof createRepo>;
+  userId: string;
+  wallet: string;
+}): Promise<number> {
+  const multipliers: number[] = [];
+
+  try {
+    const vebetterVote = await input.repo.getLatestUserBonusEligibility({
+      user_id: input.userId,
+      wallet_address: input.wallet,
+      bonus_type: "vebetter_vote_bonus",
+    });
+    if (vebetterVote) multipliers.push(DEFAULT_ACHIEVEMENT_DEFINITIONS.vebetter_vote_bonus.base_multiplier);
+  } catch (err) {
+    console.warn("vote_bonus_lookup_failed", { wallet: input.wallet, userId: input.userId, error: String(err) });
+  }
+
+  try {
+    const highestGmNft = await getHighestGmNftByOwner(input.config, input.wallet);
+    if (highestGmNft) multipliers.push(DEFAULT_ACHIEVEMENT_DEFINITIONS.gm_nft.base_multiplier);
+  } catch (err) {
+    console.warn("gm_nft_lookup_failed", { wallet: input.wallet, error: String(err) });
+  }
+
+  return computeAdditiveBonusMultiplier(multipliers);
 }
 
 function normalizeBoolString(input: string): string {
@@ -1913,7 +1962,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       if (definition.key === "vebetter_vote_bonus") {
         const unlocked = Boolean(vebetterVote);
         const multiplier = unlocked
-          ? toSafeMultiplier(vebetterVote?.bonus_multiplier, definition.base_multiplier)
+          ? Math.max(toSafeMultiplier(vebetterVote?.bonus_multiplier, definition.base_multiplier), definition.base_multiplier)
           : 1;
         const description = unlocked
           ? renderTemplate(definition.unlocked_description_template, {
@@ -1997,7 +2046,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     });
 
     const unlockedCount = achievements.filter((a) => a.unlocked).length;
-    const totalMultiplier = achievements.reduce((acc, a) => acc * (a.unlocked ? a.multiplier : 1), 1);
+    const totalMultiplier = computeAchievementTotalMultiplier(achievements);
 
     return jsonResponse(config, req, 200, {
       achievements,
@@ -2381,7 +2430,12 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       const timeThreshold = normalizeBoolString(timeThresholdRaw);
 
       const ok = retinfoIsAvaild === "true" && timeThreshold === "false";
-      const { totalPoints } = computeTotalPoints(payload.drinkList);
+      const { totalPoints: basePoints } = computeTotalPoints(payload.drinkList);
+      const bonusMultiplier =
+        ok && basePoints > 0
+          ? await getReceiptBonusMultiplier({ config, repo, userId: authed.sub, wallet })
+          : 1;
+      const totalPoints = ok ? applyPointsMultiplier(basePoints, bonusMultiplier) : 0;
       const finalStatus = ok ? (totalPoints > 0 ? "verified" : "not_claimable") : "rejected";
 
       const tFingerprint = performance.now();
@@ -2404,7 +2458,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           receipt_time_raw: receiptTimeRaw,
           retinfo_is_availd: retinfoIsAvaild,
           time_threshold: timeThreshold,
-          points_total: ok ? totalPoints : 0,
+          points_total: totalPoints,
           receipt_fingerprint: finalStatus === "verified" ? receiptFingerprint : null,
           rejection_code: null,
           duplicate_of: null,
