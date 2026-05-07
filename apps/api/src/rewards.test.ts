@@ -137,6 +137,142 @@ describe('rewards', () => {
     expect(metadata.sources.submission_count).toBe(1);
     expect(metadata.sources.bottle_count).toBe(2);
     expect(metadata.sources.total_ml).toBe(1500);
+    expect(metadata.sources.items_truncated).toBe(false);
     expect(metadata.sources.items[0].receipt_fingerprint).toBe('receipt-fingerprint');
+  });
+
+  it('does not force a positive plastic reduction for one baseline bottle', async () => {
+    const createdClaim = rewardClaim({
+      points_claimed: 2,
+      b3tr_amount_wei: '200000000000000000'
+    });
+    const submittedClaim = rewardClaim({
+      ...createdClaim,
+      status: 'submitted',
+      tx_hash: '0x' + '2'.repeat(64),
+      raw_tx: '0xraw'
+    });
+    let signedInput: any = null;
+    const repo = {
+      getUserPointsTotal: async () => 2,
+      getUserPointsLocked: async () => 0,
+      getActiveRewardConversionRate: async (): Promise<DbRewardConversionRate> => ({
+        id: createdClaim.conversion_rate_id,
+        points_per_b3tr: 10,
+        active: true,
+        created_at: '2026-05-08T00:00:00.000Z'
+      }),
+      getRewardClaimByClientId: async () => null,
+      getInflightRewardClaim: async () => null,
+      getRewardClaimById: async () => null,
+      listRewardClaimSourceSubmissions: async () => [
+        submission({
+          points_total: 2,
+          dify_drink_list: [
+            {
+              retinfoDrinkName: 'Water',
+              retinfoDrinkCapacity: 500,
+              retinfoDrinkAmount: 1
+            }
+          ]
+        })
+      ],
+      createRewardClaim: async () => createdClaim,
+      createRewardClaimSources: async (inputs: any[]) => inputs,
+      updateRewardClaim: async (_id: string, patch: Partial<DbRewardClaim>) => ({
+        ...submittedClaim,
+        ...patch
+      }),
+      listRewardClaims: async () => []
+    };
+    const chain = {
+      signRewardDistributionTx: async (input: any) => {
+        signedInput = input;
+        return { txHash: submittedClaim.tx_hash!, rawTx: submittedClaim.raw_tx! };
+      },
+      broadcastRawTransaction: async () => ({ txHash: submittedClaim.tx_hash! }),
+      getTransactionReceipt: async () => null
+    };
+
+    await createOrGetRewardClaimAndSubmit({
+      repo,
+      chain,
+      userId: createdClaim.user_id,
+      walletAddressLower: createdClaim.wallet_address,
+      clientClaimId: createdClaim.client_claim_id,
+      isUniqueViolation: () => false
+    });
+
+    expect(signedInput.impacts.plastic).toBe(0);
+  });
+
+  it('caps on-chain reward metadata source details', async () => {
+    const createdClaim = rewardClaim({
+      points_claimed: 11,
+      b3tr_amount_wei: '1100000000000000000'
+    });
+    const submittedClaim = rewardClaim({
+      ...createdClaim,
+      status: 'submitted',
+      tx_hash: '0x' + '3'.repeat(64),
+      raw_tx: '0xraw'
+    });
+    let signedInput: any = null;
+    const sources = Array.from({ length: 11 }, (_, idx) =>
+      submission({
+        id: `55555555-5555-4555-8555-${String(idx + 1).padStart(12, '0')}`,
+        points_total: 1,
+        receipt_fingerprint: `receipt-${idx + 1}`,
+        dify_drink_list: Array.from({ length: 5 }, () => ({
+          retinfoDrinkName: 'Water',
+          retinfoDrinkCapacity: 500,
+          retinfoDrinkAmount: 1
+        }))
+      })
+    );
+    const repo = {
+      getUserPointsTotal: async () => 11,
+      getUserPointsLocked: async () => 0,
+      getActiveRewardConversionRate: async (): Promise<DbRewardConversionRate> => ({
+        id: createdClaim.conversion_rate_id,
+        points_per_b3tr: 10,
+        active: true,
+        created_at: '2026-05-08T00:00:00.000Z'
+      }),
+      getRewardClaimByClientId: async () => null,
+      getInflightRewardClaim: async () => null,
+      getRewardClaimById: async () => null,
+      listRewardClaimSourceSubmissions: async () => sources,
+      createRewardClaim: async () => createdClaim,
+      createRewardClaimSources: async (inputs: any[]) => inputs,
+      updateRewardClaim: async (_id: string, patch: Partial<DbRewardClaim>) => ({
+        ...submittedClaim,
+        ...patch
+      }),
+      listRewardClaims: async () => []
+    };
+    const chain = {
+      signRewardDistributionTx: async (input: any) => {
+        signedInput = input;
+        return { txHash: submittedClaim.tx_hash!, rawTx: submittedClaim.raw_tx! };
+      },
+      broadcastRawTransaction: async () => ({ txHash: submittedClaim.tx_hash! }),
+      getTransactionReceipt: async () => null
+    };
+
+    await createOrGetRewardClaimAndSubmit({
+      repo,
+      chain,
+      userId: createdClaim.user_id,
+      walletAddressLower: createdClaim.wallet_address,
+      clientClaimId: createdClaim.client_claim_id,
+      isUniqueViolation: () => false
+    });
+
+    const metadata = JSON.parse(signedInput.metadata);
+    expect(metadata.sources.submission_count).toBe(11);
+    expect(metadata.sources.items_truncated).toBe(true);
+    expect(metadata.sources.items).toHaveLength(10);
+    expect(metadata.sources.items[0].drinks).toHaveLength(3);
   });
 });

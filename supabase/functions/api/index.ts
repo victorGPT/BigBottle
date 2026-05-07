@@ -12,8 +12,15 @@ import {
   type SupabaseClient,
 } from "https://esm.sh/@supabase/supabase-js@2.57.4?target=deno";
 import { AwsClient } from "https://esm.sh/aws4fetch@1.0.20?target=deno";
-import { getAddress, verifyTypedData } from "https://esm.sh/ethers@6.15.0?target=deno";
+import { getAddress, getBytes, Interface, formatUnits, verifyTypedData } from "https://esm.sh/ethers@6.15.0?target=deno";
 import { SignJWT, jwtVerify } from "https://esm.sh/jose@5.2.4?target=deno";
+import { Address, Transaction } from "https://esm.sh/@vechain/sdk-core@2.0.7?target=deno";
+import {
+  ProviderInternalBaseWallet,
+  ThorClient,
+  VeChainProvider,
+  type TransactionReceipt,
+} from "https://esm.sh/@vechain/sdk-network@2.0.7?target=deno";
 
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
@@ -36,6 +43,13 @@ type AppConfig = {
   DIFY_WORKFLOW_ID?: string;
   DIFY_IMAGE_INPUT_KEY: string;
   DIFY_TIMEOUT_MS: number;
+  REWARDS_MODE: "mock" | "chain";
+  VECHAIN_NETWORK: "testnet" | "mainnet";
+  VECHAIN_NODE_URL?: string;
+  VEBETTER_APP_ID?: string;
+  X2EARN_REWARDS_POOL_ADDRESS?: string;
+  FEE_DELEGATION_URL?: string;
+  REWARD_DISTRIBUTOR_PRIVATE_KEY?: string;
   // VeChain mainnet config for GM-NFT lookup
   VECHAIN_THOR_URL?: string;
   VEBETTER_GALAXY_MEMBER_ADDRESS?: string;
@@ -63,6 +77,16 @@ function loadConfig(): AppConfig {
   const DIFY_WORKFLOW_ID = envString("DIFY_WORKFLOW_ID");
   const DIFY_IMAGE_INPUT_KEY = envString("DIFY_IMAGE_INPUT_KEY") ?? "image_url";
   const DIFY_TIMEOUT_MS = Number(envString("DIFY_TIMEOUT_MS") ?? "20000");
+  const REWARDS_MODE_RAW = (envString("REWARDS_MODE") ?? "mock").toLowerCase();
+  const REWARDS_MODE: "mock" | "chain" = REWARDS_MODE_RAW === "chain" ? "chain" : "mock";
+  const VECHAIN_NETWORK_RAW = (envString("VECHAIN_NETWORK") ?? "testnet").toLowerCase();
+  const VECHAIN_NETWORK: "testnet" | "mainnet" =
+    VECHAIN_NETWORK_RAW === "mainnet" ? "mainnet" : "testnet";
+  const VECHAIN_NODE_URL = envString("VECHAIN_NODE_URL");
+  const VEBETTER_APP_ID = envString("VEBETTER_APP_ID");
+  const X2EARN_REWARDS_POOL_ADDRESS = envString("X2EARN_REWARDS_POOL_ADDRESS");
+  const FEE_DELEGATION_URL = envString("FEE_DELEGATION_URL");
+  const REWARD_DISTRIBUTOR_PRIVATE_KEY = envString("REWARD_DISTRIBUTOR_PRIVATE_KEY");
 
   const missing: string[] = [];
   if (!JWT_SECRET) missing.push("JWT_SECRET");
@@ -85,6 +109,12 @@ function loadConfig(): AppConfig {
     if (!DIFY_API_KEY) missing.push("DIFY_API_KEY");
     if (!DIFY_WORKFLOW_ID) missing.push("DIFY_WORKFLOW_ID");
   }
+  if (REWARDS_MODE === "chain") {
+    if (!VEBETTER_APP_ID) missing.push("VEBETTER_APP_ID");
+    if (!X2EARN_REWARDS_POOL_ADDRESS) missing.push("X2EARN_REWARDS_POOL_ADDRESS");
+    if (!FEE_DELEGATION_URL) missing.push("FEE_DELEGATION_URL");
+    if (!REWARD_DISTRIBUTOR_PRIVATE_KEY) missing.push("REWARD_DISTRIBUTOR_PRIVATE_KEY");
+  }
   if (missing.length) {
     throw new Error(`Missing required env vars: ${missing.join(", ")}`);
   }
@@ -106,6 +136,13 @@ function loadConfig(): AppConfig {
     DIFY_WORKFLOW_ID,
     DIFY_IMAGE_INPUT_KEY,
     DIFY_TIMEOUT_MS,
+    REWARDS_MODE,
+    VECHAIN_NETWORK,
+    VECHAIN_NODE_URL,
+    VEBETTER_APP_ID,
+    X2EARN_REWARDS_POOL_ADDRESS,
+    FEE_DELEGATION_URL,
+    REWARD_DISTRIBUTOR_PRIVATE_KEY,
     // GM-NFT lookup defaults
     VECHAIN_THOR_URL: envString("VECHAIN_THOR_URL") ?? "https://mainnet.vechain.org",
     VEBETTER_GALAXY_MEMBER_ADDRESS: envString("VEBETTER_GALAXY_MEMBER_ADDRESS") ?? "0x93B8cD34A7Fc4f53271b9011161F7A2B5fEA9D1F",
@@ -209,6 +246,39 @@ type DbReceiptSubmission = {
   verified_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type DbRewardConversionRate = {
+  id: string;
+  points_per_b3tr: number;
+  active: boolean;
+  created_at: string;
+};
+
+type DbRewardClaim = {
+  id: string;
+  user_id: string;
+  wallet_address: string;
+  client_claim_id: string;
+  conversion_rate_id: string;
+  points_per_b3tr_snapshot: number;
+  points_claimed: number;
+  b3tr_amount_wei: string;
+  status: string;
+  tx_hash: string | null;
+  raw_tx: string | null;
+  failure_reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type DbRewardClaimSource = {
+  claim_id: string;
+  submission_id: string;
+  points_total: number;
+  receipt_fingerprint: string | null;
+  dify_drink_list: unknown | null;
+  created_at: string;
 };
 
 type DbVoteBonusEligibility = {
@@ -379,6 +449,111 @@ function createRepo(supabase: SupabaseClient) {
       const res = await supabase.rpc("bb_user_points_total", { user_id: userId });
       const data = ensureOk(res, "Failed to compute user points total");
       return typeof data === "number" && Number.isFinite(data) ? data : 0;
+    },
+
+    async getUserPointsLocked(userId: string): Promise<number> {
+      const res = await supabase.rpc("bb_user_points_locked", { user_id: userId });
+      const data = ensureOk(res, "Failed to compute user points locked");
+      return typeof data === "number" && Number.isFinite(data) ? data : 0;
+    },
+
+    async getActiveRewardConversionRate(): Promise<DbRewardConversionRate | null> {
+      const res = await supabase
+        .from("reward_conversion_rates")
+        .select("*")
+        .eq("active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const data = ensureOk(res, "Failed to fetch active reward conversion rate");
+      return (data as DbRewardConversionRate) ?? null;
+    },
+
+    async getRewardClaimById(id: string): Promise<DbRewardClaim | null> {
+      const res = await supabase.from("reward_claims").select("*").eq("id", id).maybeSingle();
+      const data = ensureOk(res, "Failed to fetch reward claim");
+      return (data as DbRewardClaim) ?? null;
+    },
+
+    async getRewardClaimByClientId(input: {
+      user_id: string;
+      client_claim_id: string;
+    }): Promise<DbRewardClaim | null> {
+      const res = await supabase
+        .from("reward_claims")
+        .select("*")
+        .eq("user_id", input.user_id)
+        .eq("client_claim_id", input.client_claim_id)
+        .maybeSingle();
+      const data = ensureOk(res, "Failed to fetch reward claim by client id");
+      return (data as DbRewardClaim) ?? null;
+    },
+
+    async getInflightRewardClaim(userId: string): Promise<DbRewardClaim | null> {
+      const res = await supabase
+        .from("reward_claims")
+        .select("*")
+        .eq("user_id", userId)
+        .in("status", ["pending", "submitted"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const data = ensureOk(res, "Failed to fetch inflight reward claim");
+      return (data as DbRewardClaim) ?? null;
+    },
+
+    async listRewardClaimSourceSubmissions(userId: string): Promise<DbReceiptSubmission[]> {
+      const res = await supabase.rpc("bb_reward_claim_source_submissions", { user_id: userId });
+      return ensureOk(res, "Failed to fetch reward claim source submissions") as DbReceiptSubmission[];
+    },
+
+    async createRewardClaim(input: {
+      user_id: string;
+      wallet_address: string;
+      client_claim_id: string;
+      conversion_rate_id: string;
+      points_per_b3tr_snapshot: number;
+      points_claimed: number;
+      b3tr_amount_wei: string;
+      status: string;
+    }): Promise<DbRewardClaim> {
+      const res = await supabase.from("reward_claims").insert(input).select("*").single();
+      return ensureOk(res, "Failed to create reward claim") as DbRewardClaim;
+    },
+
+    async updateRewardClaim(
+      id: string,
+      patch: Partial<Omit<DbRewardClaim, "id" | "user_id" | "created_at">>,
+    ): Promise<DbRewardClaim> {
+      const res = await supabase
+        .from("reward_claims")
+        .update(patch)
+        .eq("id", id)
+        .select("*")
+        .single();
+      return ensureOk(res, "Failed to update reward claim") as DbRewardClaim;
+    },
+
+    async createRewardClaimSources(inputs: Array<{
+      claim_id: string;
+      submission_id: string;
+      points_total: number;
+      receipt_fingerprint: string | null;
+      dify_drink_list: unknown | null;
+    }>): Promise<DbRewardClaimSource[]> {
+      if (inputs.length === 0) return [];
+      const res = await supabase.from("reward_claim_sources").insert(inputs).select("*");
+      return ensureOk(res, "Failed to create reward claim sources") as DbRewardClaimSource[];
+    },
+
+    async listRewardClaims(userId: string, limit = 20): Promise<DbRewardClaim[]> {
+      const res = await supabase
+        .from("reward_claims")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      return ensureOk(res, "Failed to list reward claims") as DbRewardClaim[];
     },
 
     async getLatestUserBonusEligibility(input: {
@@ -912,6 +1087,438 @@ function computeTotalPoints(drinkList: unknown): { totalPoints: number } {
   return { totalPoints: Math.min(uncapped, MAX_TOTAL_POINTS) };
 }
 
+// --- Rewards ---
+const B3TR_DECIMALS = 18n;
+const MAX_METADATA_SOURCE_ITEMS = 10;
+const MAX_METADATA_DRINKS_PER_SOURCE = 3;
+const DISTRIBUTE_REWARD_ABI = [
+  "function distributeRewardWithProofAndMetadata(bytes32 appId,uint256 amount,address receiver,string[] proofTypes,string[] proofValues,string[] impactCodes,uint256[] impactValues,string description,string metadata)",
+];
+const distributeIface = new Interface(DISTRIBUTE_REWARD_ABI);
+
+type RewardsQuote = {
+  points_total: number;
+  points_locked: number;
+  points_available: number;
+  points_per_b3tr: number;
+  conversion_rate_id: string;
+  b3tr_amount_wei: string;
+  b3tr_amount: string;
+};
+
+type SignRewardDistributionInput = {
+  receiver: string;
+  amountWei: bigint;
+  claimId: string;
+  description: string;
+  proof: { text: string };
+  impacts: { plastic: number };
+  metadata: string;
+};
+
+type RewardsChain = {
+  signRewardDistributionTx: (input: SignRewardDistributionInput) => Promise<{ txHash: string; rawTx: string }>;
+  broadcastRawTransaction: (rawTx: string) => Promise<{ txHash: string }>;
+  getTransactionReceipt: (txHash: string) => Promise<TransactionReceipt | null>;
+};
+
+function computeClaimableB3trWei(input: { pointsAvailable: number; pointsPerB3tr: number }): bigint {
+  if (!Number.isInteger(input.pointsAvailable) || input.pointsAvailable < 0) {
+    throw new Error("points_available_invalid");
+  }
+  if (!Number.isInteger(input.pointsPerB3tr) || input.pointsPerB3tr <= 0) {
+    throw new Error("points_per_b3tr_invalid");
+  }
+  if (input.pointsAvailable === 0) return 0n;
+  return (BigInt(input.pointsAvailable) * 10n ** B3TR_DECIMALS) / BigInt(input.pointsPerB3tr);
+}
+
+function formatB3trDisplay(amountWei: bigint): string {
+  if (amountWei < 0n) throw new Error("amount_invalid");
+  return formatUnits(amountWei, 18);
+}
+
+function formatRewardClaimForApi(claim: DbRewardClaim) {
+  return {
+    id: claim.id,
+    wallet_address: claim.wallet_address,
+    client_claim_id: claim.client_claim_id,
+    points_claimed: claim.points_claimed,
+    points_per_b3tr: claim.points_per_b3tr_snapshot,
+    conversion_rate_id: claim.conversion_rate_id,
+    b3tr_amount_wei: String(claim.b3tr_amount_wei),
+    b3tr_amount: formatB3trDisplay(BigInt(String(claim.b3tr_amount_wei))),
+    status: claim.status,
+    tx_hash: claim.tx_hash,
+    failure_reason: claim.failure_reason,
+    created_at: claim.created_at,
+    updated_at: claim.updated_at,
+  };
+}
+
+async function getRewardsQuote(repo: ReturnType<typeof createRepo>, userId: string): Promise<RewardsQuote> {
+  const [pointsTotal, pointsLocked, rate] = await Promise.all([
+    repo.getUserPointsTotal(userId),
+    repo.getUserPointsLocked(userId),
+    repo.getActiveRewardConversionRate(),
+  ]);
+  if (!rate) throw new Error("rewards_unconfigured");
+  const pointsAvailable = Math.max(0, pointsTotal - pointsLocked);
+  const b3trWei = computeClaimableB3trWei({
+    pointsAvailable,
+    pointsPerB3tr: rate.points_per_b3tr,
+  });
+  return {
+    points_total: pointsTotal,
+    points_locked: pointsLocked,
+    points_available: pointsAvailable,
+    points_per_b3tr: rate.points_per_b3tr,
+    conversion_rate_id: rate.id,
+    b3tr_amount_wei: b3trWei.toString(),
+    b3tr_amount: formatB3trDisplay(b3trWei),
+  };
+}
+
+function summarizeDrinkList(drinkList: unknown): {
+  bottleCount: number;
+  totalMl: number;
+  drinks: Array<{ name: string | null; capacity_ml: number | null; amount: number }>;
+} {
+  const list = Array.isArray(drinkList) ? (drinkList as DifyDrinkItem[]).slice(0, MAX_ITEMS) : [];
+  const drinks = list.map((item) => {
+    const capacityMl = parseCapacityMl(item.retinfoDrinkCapacity);
+    const amount = parseAmount(item.retinfoDrinkAmount);
+    const rawName = isRecord(item) ? item.retinfoDrinkName : null;
+    const name = typeof rawName === "string" && rawName.trim() ? rawName.trim().slice(0, 80) : null;
+    return { name, capacity_ml: capacityMl, amount };
+  });
+  return {
+    bottleCount: drinks.reduce((sum, item) => sum + item.amount, 0),
+    totalMl: drinks.reduce((sum, item) => sum + (item.capacity_ml ?? 0) * item.amount, 0),
+    drinks,
+  };
+}
+
+function calculatePlasticReductionGrams(input: { bottleCount: number }): number {
+  const baselineMl = 500;
+  const u0 = 0.03;
+  const k = 0.2;
+  const bottleCount = Number.isFinite(input.bottleCount) ? Math.max(1, Math.floor(input.bottleCount)) : 1;
+  const perMl = u0 / (1 + k * Math.log(bottleCount));
+  const baselineTotal = u0 * bottleCount * baselineMl;
+  const scaledTotal = perMl * bottleCount * baselineMl;
+  return Number(Math.max(0, baselineTotal - scaledTotal).toFixed(3));
+}
+
+function selectSourcesForPoints(sources: DbReceiptSubmission[], pointsClaimed: number): DbReceiptSubmission[] {
+  const selected: DbReceiptSubmission[] = [];
+  let points = 0;
+  for (const source of sources) {
+    if (points >= pointsClaimed) break;
+    if (source.points_total <= 0) continue;
+    selected.push(source);
+    points += source.points_total;
+  }
+  return selected;
+}
+
+function isBytes32Hex(value: string): boolean {
+  return /^0x[0-9a-fA-F]{64}$/.test(value.trim());
+}
+
+function isPrivateKeyHex(value: string): boolean {
+  return /^0x[0-9a-fA-F]{64}$/.test(value.trim());
+}
+
+function defaultVechainNodeUrl(network: "testnet" | "mainnet"): string {
+  return network === "mainnet" ? "https://mainnet.vechain.org" : "https://testnet.vechain.org";
+}
+
+function requireRewardsChainConfig(config: AppConfig) {
+  const nodeUrl = config.VECHAIN_NODE_URL ?? defaultVechainNodeUrl(config.VECHAIN_NETWORK);
+  if (!config.VEBETTER_APP_ID || !isBytes32Hex(config.VEBETTER_APP_ID)) throw new Error("rewards_unconfigured");
+  if (!config.X2EARN_REWARDS_POOL_ADDRESS) throw new Error("rewards_unconfigured");
+  if (!config.FEE_DELEGATION_URL) throw new Error("rewards_unconfigured");
+  if (!config.REWARD_DISTRIBUTOR_PRIVATE_KEY || !isPrivateKeyHex(config.REWARD_DISTRIBUTOR_PRIVATE_KEY)) {
+    throw new Error("rewards_unconfigured");
+  }
+  return {
+    nodeUrl,
+    appId: config.VEBETTER_APP_ID,
+    rewardsPoolAddress: getAddress(config.X2EARN_REWARDS_POOL_ADDRESS),
+    feeDelegationUrl: config.FEE_DELEGATION_URL,
+    distributorPrivateKey: config.REWARD_DISTRIBUTOR_PRIVATE_KEY,
+  };
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function createRewardsChain(config: AppConfig): RewardsChain {
+  if (config.REWARDS_MODE === "mock") {
+    const mockRawTx = (claimId: string) => `0x${claimId.replace(/-/g, "")}`;
+    return {
+      async signRewardDistributionTx(input) {
+        getAddress(input.receiver);
+        if (input.amountWei <= 0n) throw new Error("amount_invalid");
+        if (!input.proof.text.trim()) throw new Error("proof_invalid");
+        if (!Number.isFinite(input.impacts.plastic) || input.impacts.plastic < 0) throw new Error("impact_invalid");
+        JSON.parse(input.metadata);
+        const rawTx = mockRawTx(input.claimId);
+        return { rawTx, txHash: `0x${await sha256Hex(rawTx)}` };
+      },
+      async broadcastRawTransaction(rawTx) {
+        return { txHash: `0x${await sha256Hex(rawTx)}` };
+      },
+      async getTransactionReceipt(txHash) {
+        const now = Math.floor(Date.now() / 1000);
+        return {
+          gasUsed: 0,
+          gasPayer: "0x0000000000000000000000000000000000000000",
+          paid: "0",
+          reward: "0",
+          reverted: false,
+          outputs: [],
+          meta: {
+            blockID: "0x" + "0".repeat(64),
+            blockNumber: 1,
+            blockTimestamp: now,
+            txID: txHash,
+            txOrigin: "0x0000000000000000000000000000000000000000",
+          },
+        };
+      },
+    };
+  }
+
+  let thorClient: ThorClient | null = null;
+  let signerContext: any | null = null;
+
+  function getThorClient(): ThorClient {
+    if (thorClient) return thorClient;
+    thorClient = ThorClient.at(config.VECHAIN_NODE_URL ?? defaultVechainNodeUrl(config.VECHAIN_NETWORK), {
+      isPollingEnabled: false,
+    });
+    return thorClient;
+  }
+
+  async function createSignerContext() {
+    const cfg = requireRewardsChainConfig(config);
+    const pkBytes = getBytes(cfg.distributorPrivateKey);
+    if (pkBytes.length !== 32) throw new Error("rewards_unconfigured");
+    const signerAddress = Address.ofPrivateKey(pkBytes).toString();
+    const wallet = new ProviderInternalBaseWallet(
+      [{ address: signerAddress, privateKey: pkBytes }],
+      { gasPayer: { gasPayerServiceUrl: cfg.feeDelegationUrl } },
+    );
+    const provider = new VeChainProvider(getThorClient(), wallet, true);
+    const signer = await provider.getSigner(signerAddress);
+    if (!signer) throw new Error("rewards_unconfigured");
+    return { cfg, signer };
+  }
+
+  async function getSignerContext() {
+    if (!signerContext) signerContext = await createSignerContext();
+    return signerContext;
+  }
+
+  return {
+    async signRewardDistributionTx(input) {
+      const ctx = await getSignerContext();
+      const receiver = getAddress(input.receiver);
+      if (input.amountWei <= 0n) throw new Error("amount_invalid");
+      const proofText = input.proof.text.trim();
+      if (!proofText) throw new Error("proof_invalid");
+      if (!Number.isFinite(input.impacts.plastic) || input.impacts.plastic < 0) throw new Error("impact_invalid");
+      JSON.parse(input.metadata);
+      const plasticImpact = Math.max(0, Math.floor(input.impacts.plastic));
+      const data = distributeIface.encodeFunctionData("distributeRewardWithProofAndMetadata", [
+        ctx.cfg.appId,
+        input.amountWei,
+        receiver,
+        ["text"],
+        [proofText],
+        ["plastic"],
+        [plasticImpact],
+        input.description,
+        input.metadata,
+      ]);
+      const rawTx = await ctx.signer.signTransaction({
+        to: ctx.cfg.rewardsPoolAddress,
+        data,
+        value: 0,
+        comment: `BigBottle claim ${input.claimId}`,
+      });
+      const txHash = Transaction.decode(getBytes(rawTx), true).getTransactionHash().toString();
+      return { txHash, rawTx };
+    },
+    async broadcastRawTransaction(rawTx) {
+      const res = await getThorClient().transactions.sendRawTransaction(rawTx);
+      return { txHash: res.id };
+    },
+    async getTransactionReceipt(txHash) {
+      return await getThorClient().transactions.getTransactionReceipt(txHash);
+    },
+  };
+}
+
+async function refreshRewardClaimStatus(
+  repo: ReturnType<typeof createRepo>,
+  chain: RewardsChain,
+  claim: DbRewardClaim,
+): Promise<DbRewardClaim> {
+  if (claim.status !== "submitted" || !claim.tx_hash) return claim;
+  const receipt = await chain.getTransactionReceipt(claim.tx_hash);
+  if (!receipt) return claim;
+  if (receipt.reverted) {
+    return await repo.updateRewardClaim(claim.id, {
+      status: "failed",
+      failure_reason: "tx_reverted",
+    });
+  }
+  return await repo.updateRewardClaim(claim.id, {
+    status: "confirmed",
+    failure_reason: null,
+  });
+}
+
+async function createOrGetRewardClaimAndSubmit(input: {
+  repo: ReturnType<typeof createRepo>;
+  chain: RewardsChain;
+  userId: string;
+  walletAddressLower: string;
+  clientClaimId: string;
+}): Promise<DbRewardClaim> {
+  const { repo, chain, userId, walletAddressLower, clientClaimId } = input;
+  const existing = await repo.getRewardClaimByClientId({ user_id: userId, client_claim_id: clientClaimId });
+  if (existing) return existing;
+  const inflight = await repo.getInflightRewardClaim(userId);
+  if (inflight) return inflight;
+
+  const quote = await getRewardsQuote(repo, userId);
+  if (quote.points_available <= 0) throw new Error("no_claimable_points");
+  const amountWei = BigInt(quote.b3tr_amount_wei);
+  if (amountWei <= 0n) throw new Error("no_claimable_amount");
+
+  let claim: DbRewardClaim;
+  try {
+    claim = await repo.createRewardClaim({
+      user_id: userId,
+      wallet_address: walletAddressLower,
+      client_claim_id: clientClaimId,
+      conversion_rate_id: quote.conversion_rate_id,
+      points_per_b3tr_snapshot: quote.points_per_b3tr,
+      points_claimed: quote.points_available,
+      b3tr_amount_wei: amountWei.toString(),
+      status: "pending",
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      const byClientId = await repo.getRewardClaimByClientId({ user_id: userId, client_claim_id: clientClaimId });
+      if (byClientId) return byClientId;
+      const byInflight = await repo.getInflightRewardClaim(userId);
+      if (byInflight) return byInflight;
+    }
+    throw err;
+  }
+
+  try {
+    const sourceCandidates = await repo.listRewardClaimSourceSubmissions(userId);
+    const selectedSources = selectSourcesForPoints(sourceCandidates, claim.points_claimed);
+    const selectedPoints = selectedSources.reduce((sum, source) => sum + source.points_total, 0);
+    if (selectedSources.length === 0 || selectedPoints !== claim.points_claimed) {
+      throw new Error("no_claimable_sources");
+    }
+
+    await repo.createRewardClaimSources(
+      selectedSources.map((source) => ({
+        claim_id: claim.id,
+        submission_id: source.id,
+        points_total: source.points_total,
+        receipt_fingerprint: source.receipt_fingerprint,
+        dify_drink_list: source.dify_drink_list,
+      })),
+    );
+
+    const sourceSummaries = selectedSources.map((source) => {
+      const summary = summarizeDrinkList(source.dify_drink_list);
+      return {
+        submission_id: source.id,
+        receipt_fingerprint: source.receipt_fingerprint,
+        points: source.points_total,
+        verified_at: source.verified_at,
+        bottle_count: summary.bottleCount,
+        total_ml: summary.totalMl,
+        drinks: summary.drinks.slice(0, MAX_METADATA_DRINKS_PER_SOURCE),
+      };
+    });
+    const bottleCount = sourceSummaries.reduce((sum, source) => sum + source.bottle_count, 0);
+    const totalMl = sourceSummaries.reduce((sum, source) => sum + source.total_ml, 0);
+    const plasticReductionGrams = Math.round(calculatePlasticReductionGrams({ bottleCount: Math.max(1, bottleCount) }));
+    const proofText = `BigBottle verified ${selectedSources.length} receipt(s), ${bottleCount} bottle(s), ${totalMl} ml total.`;
+    const metadata = JSON.stringify({
+      schema: "bigbottle.reward_claim.v1",
+      claim: {
+        claim_id: claim.id,
+        points_claimed: claim.points_claimed,
+        points_per_b3tr: claim.points_per_b3tr_snapshot,
+        b3tr_amount_wei: claim.b3tr_amount_wei,
+        conversion_rate_id: claim.conversion_rate_id,
+      },
+      impact_model: {
+        code: "bigbottle-plastic-v1",
+        baseline_ml: 500,
+        plastic_unit: "grams",
+      },
+      sources: {
+        submission_count: selectedSources.length,
+        bottle_count: bottleCount,
+        total_ml: totalMl,
+        items_truncated: sourceSummaries.length > MAX_METADATA_SOURCE_ITEMS,
+        items: sourceSummaries.slice(0, MAX_METADATA_SOURCE_ITEMS),
+      },
+    });
+
+    const { txHash, rawTx } = await chain.signRewardDistributionTx({
+      receiver: walletAddressLower,
+      amountWei,
+      claimId: claim.id,
+      description: "BigBottle receipt verified recycling reward",
+      proof: { text: proofText },
+      impacts: { plastic: plasticReductionGrams },
+      metadata,
+    });
+
+    let submitted = await repo.updateRewardClaim(claim.id, {
+      status: "submitted",
+      tx_hash: txHash,
+      raw_tx: rawTx,
+      failure_reason: null,
+    });
+
+    try {
+      const sent = await chain.broadcastRawTransaction(rawTx);
+      if (sent.txHash && sent.txHash !== submitted.tx_hash) {
+        submitted = await repo.updateRewardClaim(claim.id, { tx_hash: sent.txHash });
+      }
+    } catch {
+      // Raw tx is persisted and can be re-sent.
+    }
+
+    return submitted;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    try {
+      await repo.updateRewardClaim(claim.id, { status: "failed", failure_reason: reason });
+    } catch {
+      // Points may remain locked until manual intervention.
+    }
+    throw err;
+  }
+}
+
 // --- Dify ---
 type DifyReceiptPayload = {
   drinkList?: unknown;
@@ -1137,6 +1744,12 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
   const getS3 = (): AwsClient => {
     if (!s3) s3 = createS3Client(config);
     return s3;
+  };
+
+  let rewardsChain: RewardsChain | null = null;
+  const getRewardsChain = (): RewardsChain => {
+    if (!rewardsChain) rewardsChain = createRewardsChain(config);
+    return rewardsChain;
   };
 
   if (req.method === "GET" && ctx.routePath === "/health/s3") {
@@ -1394,6 +2007,82 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         total_multiplier: Number(totalMultiplier.toFixed(4)),
       },
     });
+  }
+
+  // --- Rewards ---
+  if (req.method === "GET" && ctx.routePath === "/rewards/quote") {
+    const authed = await requireAuth(config, req);
+    if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    try {
+      const quote = await getRewardsQuote(getRepo(), authed.sub);
+      return jsonResponse(config, req, 200, { quote });
+    } catch (err) {
+      const code = err instanceof Error ? err.message : null;
+      if (code === "rewards_unconfigured") return errorResponse(config, req, 503, "rewards_unconfigured");
+      console.error("rewards_quote_failed", err);
+      return errorResponse(config, req, 500, "internal_error");
+    }
+  }
+
+  if (req.method === "POST" && ctx.routePath === "/rewards/claim") {
+    const authed = await requireAuth(config, req);
+    if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    const body = await readJson(req);
+    if (!isRecord(body)) return errorResponse(config, req, 400, "invalid_body");
+    const clientClaimId = parseUuid(body.client_claim_id);
+    if (!clientClaimId) return errorResponse(config, req, 400, "invalid_body");
+
+    try {
+      const claim = await createOrGetRewardClaimAndSubmit({
+        repo: getRepo(),
+        chain: getRewardsChain(),
+        userId: authed.sub,
+        walletAddressLower: authed.wallet,
+        clientClaimId,
+      });
+      return jsonResponse(config, req, 200, { claim: formatRewardClaimForApi(claim) });
+    } catch (err) {
+      const code = err instanceof Error ? err.message : null;
+      if (code === "rewards_unconfigured") return errorResponse(config, req, 503, "rewards_unconfigured");
+      if (
+        code === "no_claimable_points" ||
+        code === "no_claimable_amount" ||
+        code === "no_claimable_sources" ||
+        code === "amount_invalid"
+      ) {
+        return errorResponse(config, req, 400, code);
+      }
+      if (isUniqueViolation(err)) return errorResponse(config, req, 409, "claim_conflict");
+      console.error("rewards_claim_failed", err);
+      return errorResponse(config, req, 500, "internal_error");
+    }
+  }
+
+  if (req.method === "GET" && ctx.routePath === "/rewards/claims") {
+    const authed = await requireAuth(config, req);
+    if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    const url = new URL(req.url);
+    const limitRaw = Number.parseInt(url.searchParams.get("limit") ?? "20", 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(100, Math.max(1, limitRaw)) : 20;
+    const claims = await getRepo().listRewardClaims(authed.sub, limit);
+    return jsonResponse(config, req, 200, { claims: claims.map(formatRewardClaimForApi) });
+  }
+
+  const rewardClaimMatch = ctx.routePath.match(/^\/rewards\/claims\/([^/]+)$/);
+  if (req.method === "GET" && rewardClaimMatch) {
+    const authed = await requireAuth(config, req);
+    if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    const claimId = parseUuid(rewardClaimMatch[1]);
+    if (!claimId) return errorResponse(config, req, 400, "invalid_params");
+    const claim = await getRepo().getRewardClaimById(claimId);
+    if (!claim || claim.user_id !== authed.sub) return errorResponse(config, req, 404, "not_found");
+    try {
+      const refreshed = await refreshRewardClaimStatus(getRepo(), getRewardsChain(), claim);
+      return jsonResponse(config, req, 200, { claim: formatRewardClaimForApi(refreshed) });
+    } catch (err) {
+      console.warn("rewards_claim_refresh_failed", { claimId: claim.id, txHash: claim.tx_hash, error: String(err) });
+      return jsonResponse(config, req, 200, { claim: formatRewardClaimForApi(claim) });
+    }
   }
 
   // --- Submissions ---

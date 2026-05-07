@@ -4,6 +4,9 @@ import { parseAmount, parseCapacityMl } from './scoring.js';
 import type { DbReceiptSubmission, DbRewardClaim, DbRewardConversionRate, DbRewardClaimSource } from './supabase.js';
 import type { RewardsChain } from './vebetterRewards.js';
 
+const MAX_METADATA_SOURCE_ITEMS = 10;
+const MAX_METADATA_DRINKS_PER_SOURCE = 3;
+
 export type RewardsQuote = {
   points_total: number;
   points_locked: number;
@@ -211,15 +214,12 @@ export async function createOrGetRewardClaimAndSubmit(input: {
         verified_at: source.verified_at,
         bottle_count: summary.bottleCount,
         total_ml: summary.totalMl,
-        drinks: summary.drinks.slice(0, 8)
+        drinks: summary.drinks.slice(0, MAX_METADATA_DRINKS_PER_SOURCE)
       };
     });
     const bottleCount = sourceSummaries.reduce((sum, source) => sum + source.bottle_count, 0);
     const totalMl = sourceSummaries.reduce((sum, source) => sum + source.total_ml, 0);
-    const plasticReductionGrams = Math.max(
-      1,
-      Math.round(calculatePlasticReductionGrams({ bottleCount: Math.max(1, bottleCount) }))
-    );
+    const plasticReductionGrams = Math.round(calculatePlasticReductionGrams({ bottleCount: Math.max(1, bottleCount) }));
 
     const proofText = `BigBottle verified ${selectedSources.length} receipt(s), ${bottleCount} bottle(s), ${totalMl} ml total.`;
     const metadata = JSON.stringify({
@@ -240,7 +240,8 @@ export async function createOrGetRewardClaimAndSubmit(input: {
         submission_count: selectedSources.length,
         bottle_count: bottleCount,
         total_ml: totalMl,
-        items: sourceSummaries
+        items_truncated: sourceSummaries.length > MAX_METADATA_SOURCE_ITEMS,
+        items: sourceSummaries.slice(0, MAX_METADATA_SOURCE_ITEMS)
       }
     });
 
