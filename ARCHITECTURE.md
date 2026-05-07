@@ -405,6 +405,6 @@ AWS S3:
   - `impact.plastic` is populated for each claim using verified receipt source data.
 - Added `apps/api/src/plastic-impact.ts`:
   - Exported `calculatePlasticReductionGrams(input)` to compute plastic reduction (grams) using a 500ml baseline and a monotonic decreasing per-ml plastic-intensity model as bottle count increases.
-- Added `supabase/migrations/20260508_reward_claim_sources.sql`:
+- Added `supabase/migrations/202605080001_reward_claim_sources.sql`:
   - `reward_claim_sources` links reward claims to the verified receipt submissions used as claim sources.
   - `bb_reward_claim_source_submissions(user_id)` returns verified submissions not already locked by active reward claims.
