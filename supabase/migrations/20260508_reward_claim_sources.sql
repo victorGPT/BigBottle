@@ -16,6 +16,12 @@ create index if not exists reward_claim_sources_submission_id_idx
 create index if not exists reward_claim_sources_claim_id_idx
   on public.reward_claim_sources (claim_id);
 
+-- Remove legacy duplicate reward columns. Current code stores the rate snapshot
+-- in points_per_b3tr_snapshot and the token amount in b3tr_amount_wei.
+alter table public.reward_claims
+  drop column if exists points_per_b3tr,
+  drop column if exists b3tr_amount;
+
 -- Conservative compatibility backfill for reward claims created before this table existed.
 -- If a legacy claim has no source rows yet, link it to the oldest currently unlinked
 -- verified submissions until the claim's points are covered. This prevents those
