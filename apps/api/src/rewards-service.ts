@@ -1,4 +1,5 @@
 import { computeClaimableB3trWei, formatB3trDisplay } from './rewards.js';
+import { calculatePlasticReductionGrams } from './plastic-impact.js';
 import type { DbRewardClaim, DbRewardConversionRate } from './supabase.js';
 import type { RewardsChain } from './vebetterRewards.js';
 
@@ -138,11 +139,25 @@ export async function createOrGetRewardClaimAndSubmit(input: {
   }
 
   try {
+    const bottleCountProxy = Math.max(1, Math.round(claim.points_claimed));
+    const plasticReductionGrams = Math.round(calculatePlasticReductionGrams({ bottleCount: bottleCountProxy }));
+
     const rewardMetadata = JSON.stringify({
-      v: 1,
-      claim_id: claim.id,
-      points_claimed: claim.points_claimed,
-      points_per_b3tr: claim.points_per_b3tr_snapshot
+      version: 2,
+      description: 'BigBottle plastic reduction reward claim',
+      proof: {
+        text: `Claim ${claim.id} validated by BigBottle scoring pipeline`
+      },
+      impact: {
+        plastic: plasticReductionGrams
+      },
+      metadata: {
+        claim_id: claim.id,
+        points_claimed: claim.points_claimed,
+        points_per_b3tr: claim.points_per_b3tr_snapshot,
+        baseline_ml: 500,
+        bottle_count_proxy: bottleCountProxy
+      }
     });
 
     const { txHash, rawTx } = await chain.signRewardDistributionTx({

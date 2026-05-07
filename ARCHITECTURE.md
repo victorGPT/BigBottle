@@ -387,3 +387,19 @@ AWS S3:
 - Upload via presigned PUT.
 - Verification fetch via presigned GET.
 - On rejected submissions, object deletion is best-effort.
+
+## Task Notes
+
+### 2026-05-07 — VeBetter proof payload + plastic impact baseline formula
+- No code interface changes in this task.
+- Product rule clarified for future implementation:
+  - VeBetterDAO impact category should use `plastic` code (unit in grams by default minimum-unit guidance).
+  - BigBottle baseline example for bottle-size normalization uses `500ml` as reference size.
+  - For a counted batch, "unit ml plastic consumption decreases as bottle count increases" should be modeled as a monotonic function where per-ml plastic declines with quantity, while total plastic impact remains non-negative and auditable.
+
+### 2026-05-07 — On-chain sustainability proof payload for reward claims
+- Updated reward claim chain payload generation in `apps/api/src/rewards-service.ts`:
+  - `rewardMetadata` now emits a version-2 sustainability proof JSON structure (`description`, `proof`, `impact`, `metadata`) for on-chain indexing.
+  - `impact.plastic` is populated for each claim.
+- Added `apps/api/src/plastic-impact.ts`:
+  - Exported `calculatePlasticReductionGrams(input)` to compute plastic reduction (grams) using a 500ml baseline and a monotonic decreasing per-ml plastic-intensity model as bottle count increases.
