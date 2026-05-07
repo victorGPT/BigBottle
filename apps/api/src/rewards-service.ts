@@ -1,6 +1,7 @@
 import { computeClaimableB3trWei, formatB3trDisplay } from './rewards.js';
 import { calculatePlasticReductionGrams } from './plastic-impact.js';
-import type { DbRewardClaim, DbRewardConversionRate } from './supabase.js';
+import { parseAmount, parseCapacityMl } from './scoring.js';
+import type { DbReceiptSubmission, DbRewardClaim, DbRewardConversionRate, DbRewardClaimSource } from './supabase.js';
 import type { RewardsChain } from './vebetterRewards.js';
 
 export type RewardsQuote = {
@@ -20,6 +21,7 @@ export type RewardsRepo = {
   getRewardClaimByClientId: (input: { user_id: string; client_claim_id: string }) => Promise<DbRewardClaim | null>;
   getInflightRewardClaim: (userId: string) => Promise<DbRewardClaim | null>;
   getRewardClaimById: (id: string) => Promise<DbRewardClaim | null>;
+  listRewardClaimSourceSubmissions: (userId: string) => Promise<DbReceiptSubmission[]>;
   createRewardClaim: (input: {
     user_id: string;
     wallet_address: string;
@@ -34,8 +36,52 @@ export type RewardsRepo = {
     id: string,
     patch: Partial<Omit<DbRewardClaim, 'id' | 'user_id' | 'created_at'>>
   ) => Promise<DbRewardClaim>;
+  createRewardClaimSources: (inputs: Array<{
+    claim_id: string;
+    submission_id: string;
+    points_total: number;
+    receipt_fingerprint: string | null;
+    dify_drink_list: unknown | null;
+  }>) => Promise<DbRewardClaimSource[]>;
   listRewardClaims: (userId: string, limit?: number) => Promise<DbRewardClaim[]>;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function summarizeDrinkList(drinkList: unknown): {
+  bottleCount: number;
+  totalMl: number;
+  drinks: Array<{ name: string | null; capacity_ml: number | null; amount: number }>;
+} {
+  const list = Array.isArray(drinkList) ? drinkList.slice(0, 25) : [];
+  const drinks = list.map((item) => {
+    const record = isRecord(item) ? item : {};
+    const capacityMl = parseCapacityMl(record.retinfoDrinkCapacity);
+    const amount = parseAmount(record.retinfoDrinkAmount);
+    const rawName = record.retinfoDrinkName;
+    const name = typeof rawName === 'string' && rawName.trim() ? rawName.trim().slice(0, 80) : null;
+    return { name, capacity_ml: capacityMl, amount };
+  });
+  return {
+    bottleCount: drinks.reduce((sum, item) => sum + item.amount, 0),
+    totalMl: drinks.reduce((sum, item) => sum + (item.capacity_ml ?? 0) * item.amount, 0),
+    drinks
+  };
+}
+
+function selectSourcesForPoints(sources: DbReceiptSubmission[], pointsClaimed: number): DbReceiptSubmission[] {
+  const selected: DbReceiptSubmission[] = [];
+  let points = 0;
+  for (const source of sources) {
+    if (points >= pointsClaimed) break;
+    if (source.points_total <= 0) continue;
+    selected.push(source);
+    points += source.points_total;
+  }
+  return selected;
+}
 
 export async function getRewardsQuote(repo: RewardsRepo, userId: string): Promise<RewardsQuote> {
   const [pointsTotal, pointsLocked, rate] = await Promise.all([
@@ -139,24 +185,62 @@ export async function createOrGetRewardClaimAndSubmit(input: {
   }
 
   try {
-    const bottleCountProxy = Math.max(1, Math.round(claim.points_claimed));
-    const plasticReductionGrams = Math.round(calculatePlasticReductionGrams({ bottleCount: bottleCountProxy }));
+    const sourceCandidates = await repo.listRewardClaimSourceSubmissions(userId);
+    const selectedSources = selectSourcesForPoints(sourceCandidates, claim.points_claimed);
+    const selectedPoints = selectedSources.reduce((sum, source) => sum + source.points_total, 0);
+    if (selectedSources.length === 0 || selectedPoints !== claim.points_claimed) {
+      throw new Error('no_claimable_sources');
+    }
 
-    const rewardMetadata = JSON.stringify({
-      version: 2,
-      description: 'BigBottle plastic reduction reward claim',
-      proof: {
-        text: `Claim ${claim.id} validated by BigBottle scoring pipeline`
-      },
-      impact: {
-        plastic: plasticReductionGrams
-      },
-      metadata: {
+    await repo.createRewardClaimSources(
+      selectedSources.map((source) => ({
+        claim_id: claim.id,
+        submission_id: source.id,
+        points_total: source.points_total,
+        receipt_fingerprint: source.receipt_fingerprint,
+        dify_drink_list: source.dify_drink_list
+      }))
+    );
+
+    const sourceSummaries = selectedSources.map((source) => {
+      const summary = summarizeDrinkList(source.dify_drink_list);
+      return {
+        submission_id: source.id,
+        receipt_fingerprint: source.receipt_fingerprint,
+        points: source.points_total,
+        verified_at: source.verified_at,
+        bottle_count: summary.bottleCount,
+        total_ml: summary.totalMl,
+        drinks: summary.drinks.slice(0, 8)
+      };
+    });
+    const bottleCount = sourceSummaries.reduce((sum, source) => sum + source.bottle_count, 0);
+    const totalMl = sourceSummaries.reduce((sum, source) => sum + source.total_ml, 0);
+    const plasticReductionGrams = Math.max(
+      1,
+      Math.round(calculatePlasticReductionGrams({ bottleCount: Math.max(1, bottleCount) }))
+    );
+
+    const proofText = `BigBottle verified ${selectedSources.length} receipt(s), ${bottleCount} bottle(s), ${totalMl} ml total.`;
+    const metadata = JSON.stringify({
+      schema: 'bigbottle.reward_claim.v1',
+      claim: {
         claim_id: claim.id,
         points_claimed: claim.points_claimed,
         points_per_b3tr: claim.points_per_b3tr_snapshot,
+        b3tr_amount_wei: claim.b3tr_amount_wei,
+        conversion_rate_id: claim.conversion_rate_id
+      },
+      impact_model: {
+        code: 'bigbottle-plastic-v1',
         baseline_ml: 500,
-        bottle_count_proxy: bottleCountProxy
+        plastic_unit: 'grams'
+      },
+      sources: {
+        submission_count: selectedSources.length,
+        bottle_count: bottleCount,
+        total_ml: totalMl,
+        items: sourceSummaries
       }
     });
 
@@ -164,8 +248,14 @@ export async function createOrGetRewardClaimAndSubmit(input: {
       receiver: walletAddressLower,
       amountWei,
       claimId: claim.id,
-      description: 'BigBottle reward claim',
-      rewardMetadata
+      description: 'BigBottle receipt verified recycling reward',
+      proof: {
+        text: proofText
+      },
+      impacts: {
+        plastic: plasticReductionGrams
+      },
+      metadata
     });
 
     // Persist tx details before broadcasting to avoid duplicate issuance on retries.

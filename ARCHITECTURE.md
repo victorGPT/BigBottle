@@ -399,7 +399,12 @@ AWS S3:
 
 ### 2026-05-07 — On-chain sustainability proof payload for reward claims
 - Updated reward claim chain payload generation in `apps/api/src/rewards-service.ts`:
-  - `rewardMetadata` now emits a version-2 sustainability proof JSON structure (`description`, `proof`, `impact`, `metadata`) for on-chain indexing.
-  - `impact.plastic` is populated for each claim.
+  - Reward claims now call VeBetterDAO `distributeRewardWithProofAndMetadata`.
+  - Official proof fields are passed as contract arguments: `proofTypes=["text"]`, `impactCodes=["plastic"]`, and a description.
+  - Extra BigBottle tx detail is emitted through the `RewardMetadata` event as JSON metadata instead of being nested inside the proof payload.
+  - `impact.plastic` is populated for each claim using verified receipt source data.
 - Added `apps/api/src/plastic-impact.ts`:
   - Exported `calculatePlasticReductionGrams(input)` to compute plastic reduction (grams) using a 500ml baseline and a monotonic decreasing per-ml plastic-intensity model as bottle count increases.
+- Added `supabase/migrations/20260508_reward_claim_sources.sql`:
+  - `reward_claim_sources` links reward claims to the verified receipt submissions used as claim sources.
+  - `bb_reward_claim_source_submissions(user_id)` returns verified submissions not already locked by active reward claims.

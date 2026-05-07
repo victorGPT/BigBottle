@@ -66,6 +66,15 @@ export type DbRewardClaim = {
   updated_at: string;
 };
 
+export type DbRewardClaimSource = {
+  claim_id: string;
+  submission_id: string;
+  points_total: number;
+  receipt_fingerprint: string | null;
+  dify_drink_list: unknown | null;
+  created_at: string;
+};
+
 export type DbVoteBonusEligibility = {
   id: number;
   effective_round_id: number;
@@ -291,6 +300,11 @@ export function createRepo(supabase: SupabaseClient) {
       return (data as DbRewardClaim) ?? null;
     },
 
+    async listRewardClaimSourceSubmissions(userId: string): Promise<DbReceiptSubmission[]> {
+      const res = await supabase.rpc('bb_reward_claim_source_submissions', { user_id: userId });
+      return ensureOk(res, 'Failed to fetch reward claim source submissions') as DbReceiptSubmission[];
+    },
+
     async createRewardClaim(input: {
       user_id: string;
       wallet_address: string;
@@ -320,6 +334,21 @@ export function createRepo(supabase: SupabaseClient) {
         .select('*')
         .single();
       return ensureOk(res, 'Failed to update reward claim') as DbRewardClaim;
+    },
+
+    async createRewardClaimSources(inputs: Array<{
+      claim_id: string;
+      submission_id: string;
+      points_total: number;
+      receipt_fingerprint: string | null;
+      dify_drink_list: unknown | null;
+    }>): Promise<DbRewardClaimSource[]> {
+      if (inputs.length === 0) return [];
+      const res = await supabase
+        .from('reward_claim_sources')
+        .insert(inputs)
+        .select('*');
+      return ensureOk(res, 'Failed to create reward claim sources') as DbRewardClaimSource[];
     },
 
     async listRewardClaims(userId: string, limit = 20): Promise<DbRewardClaim[]> {

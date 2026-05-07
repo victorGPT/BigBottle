@@ -435,7 +435,12 @@ async function main() {
     } catch (err) {
       const code = err instanceof Error ? err.message : null;
       if (code === 'rewards_unconfigured') return reply.code(503).send({ error: 'rewards_unconfigured' });
-      if (code === 'no_claimable_points' || code === 'no_claimable_amount' || code === 'amount_invalid') {
+      if (
+        code === 'no_claimable_points' ||
+        code === 'no_claimable_amount' ||
+        code === 'no_claimable_sources' ||
+        code === 'amount_invalid'
+      ) {
         return reply.code(400).send({ error: code });
       }
       request.log.error({ err }, 'rewards_claim_failed');
