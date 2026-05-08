@@ -10,7 +10,7 @@ jobs:
   rewards-guardrails:
     runs-on: ubuntu-latest
     env:
-      REWARDS_API_BASE_URL: ${{ secrets.REWARDS_API_BASE_URL }}
+      REWARDS_API_BASE_URL: ${{ secrets.REWARDS_API_BASE_URL || vars.REWARDS_API_BASE_URL || vars.SUPABASE_API_BASE_URL || 'https://tbvkyvxdhrmfprcjyvbk.supabase.co/functions/v1/api' }}
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     steps:
       - name: Checkout
