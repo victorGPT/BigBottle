@@ -6,6 +6,7 @@ import { VeChainKitProvider } from '@vechain/vechain-kit';
 
 import App from './app/App';
 import AppErrorBoundary from './app/components/AppErrorBoundary';
+import { veChainNetwork } from './config/vechainNetwork';
 import { AuthProvider } from './state/auth';
 
 import './style.css';
@@ -13,7 +14,7 @@ import './style.css';
 ReactDOM.createRoot(document.getElementById('app')!).render(
   <React.StrictMode>
     <VeChainKitProvider
-      network={{ type: 'test', nodeUrl: 'https://testnet.vechain.org/' }}
+      network={veChainNetwork}
       dappKit={{
         allowedWallets: ['veworld', 'sync2', 'wallet-connect'],
         usePersistence: true,
