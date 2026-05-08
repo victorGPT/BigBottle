@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => {
   return {
     navigate: vi.fn(),
     setToken: vi.fn(),
+    apiGet: vi.fn(),
     apiPost: vi.fn(),
     connect: vi.fn(),
     setSource: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('../src/state/auth', () => {
 
 vi.mock('../src/util/api', () => {
   return {
+    apiGet: (...args: unknown[]) => mocks.apiGet(...args),
     apiPost: (...args: unknown[]) => mocks.apiPost(...args)
   };
 });
@@ -54,10 +56,18 @@ describe('AccountPage', () => {
     vi.useFakeTimers();
     mocks.navigate.mockReset();
     mocks.setToken.mockReset();
+    mocks.apiGet.mockReset();
     mocks.apiPost.mockReset();
     mocks.connect.mockReset();
     mocks.setSource.mockReset();
     mocks.requestTypedData.mockReset();
+    mocks.apiGet.mockResolvedValue({
+      user: {
+        id: 'user',
+        wallet_address: '0x0000000000000000000000000000000000000001',
+        created_at: 'now'
+      }
+    });
 
     // Make AccountPage treat VeWorld as available.
     (window as any).vechain = {};
@@ -131,7 +141,12 @@ describe('AccountPage', () => {
       { challenge_id: challenge.challenge_id, signature: '0xsig' },
       null
     );
-    expect(mocks.setToken).toHaveBeenCalledWith('token');
+    expect(mocks.apiGet).toHaveBeenCalledWith('/me', 'token');
+    expect(mocks.setToken).toHaveBeenCalledWith('token', {
+      id: 'user',
+      wallet_address: address,
+      created_at: 'now'
+    });
     expect(mocks.navigate).toHaveBeenCalledWith('/', { replace: true });
   });
 
