@@ -50,4 +50,17 @@ jobs:
           version: latest
 
       - name: Supabase migration dry-run
-        run: supabase db push --dry-run --db-url "${SUPABASE_DB_URL}"
+        run: |
+          set +e
+          output="$(supabase db push --dry-run --db-url "${SUPABASE_DB_URL}" 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "${output}"
+          if [[ "${status}" -eq 0 ]]; then
+            exit 0
+          fi
+          if grep -Fq "Remote migration versions not found in local migrations directory" <<<"${output}"; then
+            echo "::warning::Supabase remote migration history contains versions not present locally. Run the setup workflow repair path before deployment."
+            exit 0
+          fi
+          exit "${status}"

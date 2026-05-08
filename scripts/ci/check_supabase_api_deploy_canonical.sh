@@ -23,8 +23,11 @@ if command -v rg >/dev/null 2>&1; then
 else
   matches="$(
     find .github/workflows scripts -type f \
+      ! -path "${CANONICAL_SCRIPT}" \
       ! -path "./${CANONICAL_SCRIPT}" \
+      ! -path 'scripts/ci/check_supabase_api_deploy_canonical.sh' \
       ! -path './scripts/ci/check_supabase_api_deploy_canonical.sh' \
+      ! -path 'scripts/ci/test_*.sh' \
       ! -path './scripts/ci/test_*.sh' \
       -print0 |
       while IFS= read -r -d '' file; do
