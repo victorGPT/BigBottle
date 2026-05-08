@@ -420,6 +420,37 @@ function createRepo(supabase: SupabaseClient) {
       return ensureOk(res, "Failed to create submission") as DbReceiptSubmission;
     },
 
+    async countSubmissionsCreatedInWindow(input: {
+      user_id: string;
+      start_iso: string;
+      end_iso: string;
+    }): Promise<number> {
+      const res = await supabase
+        .from("receipt_submissions")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", input.user_id)
+        .gte("created_at", input.start_iso)
+        .lt("created_at", input.end_iso);
+      ensureOk(res, "Failed to count daily submissions");
+      return res.count ?? 0;
+    },
+
+    async countVerifiedSubmissionsCreatedInWindow(input: {
+      user_id: string;
+      start_iso: string;
+      end_iso: string;
+    }): Promise<number> {
+      const res = await supabase
+        .from("receipt_submissions")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", input.user_id)
+        .eq("status", "verified")
+        .gte("created_at", input.start_iso)
+        .lt("created_at", input.end_iso);
+      ensureOk(res, "Failed to count daily verified submissions");
+      return res.count ?? 0;
+    },
+
     async updateSubmission(
       id: string,
       patch: Partial<Omit<DbReceiptSubmission, "id" | "user_id" | "created_at">>,
@@ -1059,6 +1090,32 @@ function getPostgresErrorCode(err: unknown): string | null {
 
 function isUniqueViolation(err: unknown): boolean {
   return getPostgresErrorCode(err) === "23505";
+}
+
+const DAILY_SUCCESSFUL_RECEIPT_LIMIT = 3;
+const DAILY_TOTAL_UPLOAD_LIMIT = 6;
+
+function getUtcDayWindow(date = new Date()): { startIso: string; endIso: string } {
+  const start = new Date(date);
+  start.setUTCHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { startIso: start.toISOString(), endIso: end.toISOString() };
+}
+
+function isDailyLimitError(err: unknown, code?: string): boolean {
+  if (!(err instanceof Error)) return false;
+  const haystack = [
+    err.message,
+    typeof (err as any).cause === "object" && (err as any).cause
+      ? JSON.stringify((err as any).cause)
+      : "",
+  ].join("\n");
+  if (code) return haystack.includes(code);
+  return (
+    haystack.includes("daily_upload_limit_exceeded") ||
+    haystack.includes("daily_verified_limit_exceeded")
+  );
 }
 
 const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
@@ -2175,6 +2232,26 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       return jsonResponse(config, req, 200, { submission: existing, upload: null });
     }
 
+    const today = getUtcDayWindow();
+    const [dailyUploadCount, dailyVerifiedCount] = await Promise.all([
+      repo.countSubmissionsCreatedInWindow({
+        user_id: authed.sub,
+        start_iso: today.startIso,
+        end_iso: today.endIso,
+      }),
+      repo.countVerifiedSubmissionsCreatedInWindow({
+        user_id: authed.sub,
+        start_iso: today.startIso,
+        end_iso: today.endIso,
+      }),
+    ]);
+    if (dailyVerifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
+      return errorResponse(config, req, 429, "daily_verified_limit_exceeded");
+    }
+    if (dailyUploadCount >= DAILY_TOTAL_UPLOAD_LIMIT) {
+      return errorResponse(config, req, 429, "daily_upload_limit_exceeded");
+    }
+
     const contentType = contentTypeRaw.split(";")[0]?.trim().toLowerCase() ?? "";
     if (!ALLOWED_UPLOAD_CONTENT_TYPES.has(contentType)) {
       return errorResponse(config, req, 400, "unsupported_content_type");
@@ -2230,6 +2307,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           });
         }
         return jsonResponse(config, req, 200, { submission: again, upload: null });
+      }
+      if (isDailyLimitError(err, "daily_upload_limit_exceeded")) {
+        return errorResponse(config, req, 429, "daily_upload_limit_exceeded");
       }
       throw err;
     }
@@ -2319,6 +2399,15 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     }
     if (submission.status === "pending_upload") {
       return errorResponse(config, req, 409, "upload_incomplete");
+    }
+    const uploadDay = getUtcDayWindow(new Date(submission.created_at));
+    const dailyVerifiedCount = await repo.countVerifiedSubmissionsCreatedInWindow({
+      user_id: authed.sub,
+      start_iso: uploadDay.startIso,
+      end_iso: uploadDay.endIso,
+    });
+    if (dailyVerifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
+      return errorResponse(config, req, 429, "daily_verified_limit_exceeded");
     }
     if (submission.status === "verifying") {
       return jsonResponse(config, req, 200, { submission });
@@ -2482,6 +2571,15 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
             duplicate_of: winner?.id ?? null,
             verified_at: nowIso,
           });
+        } else if (finalStatus === "verified" && isDailyLimitError(err, "daily_verified_limit_exceeded")) {
+          await repo.updateSubmission(claimed.id, {
+            status: "uploaded",
+            points_total: 0,
+            receipt_fingerprint: null,
+            rejection_code: null,
+            duplicate_of: null,
+          });
+          return errorResponse(config, req, 429, "daily_verified_limit_exceeded");
         } else {
           throw err;
         }
