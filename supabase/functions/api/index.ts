@@ -1193,6 +1193,7 @@ function formatRewardClaimForApi(claim: DbRewardClaim) {
     wallet_address: claim.wallet_address,
     client_claim_id: claim.client_claim_id,
     points_claimed: claim.points_claimed,
+    points_per_b3tr_snapshot: claim.points_per_b3tr_snapshot,
     points_per_b3tr: claim.points_per_b3tr_snapshot,
     conversion_rate_id: claim.conversion_rate_id,
     b3tr_amount_wei: String(claim.b3tr_amount_wei),
