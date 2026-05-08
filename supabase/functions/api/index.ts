@@ -2434,7 +2434,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       const { totalPoints: basePoints } = computeTotalPoints(payload.drinkList);
       const bonusMultiplier =
         ok && basePoints > 0
-          ? await getReceiptBonusMultiplier({ config, repo, userId: authed.sub, wallet })
+          ? await getReceiptBonusMultiplier({ config, repo, userId: authed.sub, wallet: authed.wallet })
           : 1;
       const totalPoints = ok ? applyPointsMultiplier(basePoints, bonusMultiplier) : 0;
       const finalStatus = ok ? (totalPoints > 0 ? "verified" : "not_claimable") : "rejected";
