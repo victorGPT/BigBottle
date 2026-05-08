@@ -217,6 +217,37 @@ export function createRepo(supabase: SupabaseClient) {
       return ensureOk(res, 'Failed to create submission') as DbReceiptSubmission;
     },
 
+    async countSubmissionsCreatedInWindow(input: {
+      user_id: string;
+      start_iso: string;
+      end_iso: string;
+    }): Promise<number> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', input.user_id)
+        .gte('created_at', input.start_iso)
+        .lt('created_at', input.end_iso);
+      ensureOk(res, 'Failed to count daily submissions');
+      return res.count ?? 0;
+    },
+
+    async countVerifiedSubmissionsCreatedInWindow(input: {
+      user_id: string;
+      start_iso: string;
+      end_iso: string;
+    }): Promise<number> {
+      const res = await supabase
+        .from('receipt_submissions')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', input.user_id)
+        .eq('status', 'verified')
+        .gte('created_at', input.start_iso)
+        .lt('created_at', input.end_iso);
+      ensureOk(res, 'Failed to count daily verified submissions');
+      return res.count ?? 0;
+    },
+
     async updateSubmission(
       id: string,
       patch: Partial<Omit<DbReceiptSubmission, 'id' | 'user_id' | 'created_at'>>

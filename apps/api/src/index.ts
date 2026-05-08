@@ -17,6 +17,12 @@ import { isUniqueViolation } from './postgres-errors.js';
 import { createOrGetRewardClaimAndSubmit, getRewardsQuote, listRewardClaims, refreshRewardClaimStatus } from './rewards-service.js';
 import { createRewardsChain } from './vebetterRewards.js';
 import { formatB3trDisplay } from './rewards.js';
+import {
+  DAILY_SUCCESSFUL_RECEIPT_LIMIT,
+  DAILY_TOTAL_UPLOAD_LIMIT,
+  getUtcDayWindow,
+  isDailyLimitError
+} from './submission-limits.js';
 
 type AuthedRequest = {
   user: { sub: string; wallet: string };
@@ -537,6 +543,26 @@ async function main() {
       return reply.send({ submission: existing, upload: null });
     }
 
+    const today = getUtcDayWindow();
+    const [dailyUploadCount, dailyVerifiedCount] = await Promise.all([
+      repo.countSubmissionsCreatedInWindow({
+        user_id: userId,
+        start_iso: today.startIso,
+        end_iso: today.endIso
+      }),
+      repo.countVerifiedSubmissionsCreatedInWindow({
+        user_id: userId,
+        start_iso: today.startIso,
+        end_iso: today.endIso
+      })
+    ]);
+    if (dailyVerifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
+      return reply.code(429).send({ error: 'daily_verified_limit_exceeded' });
+    }
+    if (dailyUploadCount >= DAILY_TOTAL_UPLOAD_LIMIT) {
+      return reply.code(429).send({ error: 'daily_upload_limit_exceeded' });
+    }
+
     const contentType = parsed.data.content_type.split(';')[0]?.trim().toLowerCase() ?? '';
     if (!ALLOWED_UPLOAD_CONTENT_TYPES.has(contentType)) {
       return reply.code(400).send({ error: 'unsupported_content_type' });
@@ -591,6 +617,9 @@ async function main() {
         }
         return reply.send({ submission: again, upload: null });
       }
+      if (isDailyLimitError(err, 'daily_upload_limit_exceeded')) {
+        return reply.code(429).send({ error: 'daily_upload_limit_exceeded' });
+      }
       throw err;
     }
 
@@ -642,6 +671,16 @@ async function main() {
     }
     if (submission.status === 'pending_upload') {
       return reply.code(409).send({ error: 'upload_incomplete' });
+    }
+
+    const uploadDay = getUtcDayWindow(new Date(submission.created_at));
+    const dailyVerifiedCount = await repo.countVerifiedSubmissionsCreatedInWindow({
+      user_id: userId,
+      start_iso: uploadDay.startIso,
+      end_iso: uploadDay.endIso
+    });
+    if (dailyVerifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
+      return reply.code(429).send({ error: 'daily_verified_limit_exceeded' });
     }
 
     if (submission.status === 'verifying') {
@@ -777,6 +816,15 @@ async function main() {
             duplicate_of: winner?.id ?? null,
             verified_at: nowIso
           });
+        } else if (finalStatus === 'verified' && isDailyLimitError(err, 'daily_verified_limit_exceeded')) {
+          await repo.updateSubmission(claimed.id, {
+            status: 'uploaded',
+            points_total: 0,
+            receipt_fingerprint: null,
+            rejection_code: null,
+            duplicate_of: null
+          });
+          return reply.code(429).send({ error: 'daily_verified_limit_exceeded' });
         } else {
           throw err;
         }
