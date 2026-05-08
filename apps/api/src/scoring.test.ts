@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyPointsMultiplier,
+  computeAdditiveBonusMultiplier,
   computeTotalPoints,
   parseAmount,
   parseCapacityMl,
@@ -71,5 +73,23 @@ describe('scoring', () => {
     }));
     const res = computeTotalPoints(list);
     expect(res.items.length).toBe(25);
+  });
+
+  it('adds unlocked achievement multipliers instead of multiplying them', () => {
+    expect(computeAdditiveBonusMultiplier([])).toBe(1);
+    expect(computeAdditiveBonusMultiplier([10])).toBe(10);
+    expect(computeAdditiveBonusMultiplier([10, 10])).toBe(20);
+    expect(computeAdditiveBonusMultiplier([1, 10])).toBe(10);
+  });
+
+  it('applies additive bonus multiplier after base receipt scoring', () => {
+    const base = computeTotalPoints([
+      { retinfoDrinkCapacity: 500, retinfoDrinkAmount: 1 },
+      { retinfoDrinkCapacity: 1000, retinfoDrinkAmount: 1 }
+    ]);
+
+    expect(base.totalPoints).toBe(12);
+    expect(applyPointsMultiplier(base.totalPoints, 10)).toBe(120);
+    expect(applyPointsMultiplier(base.totalPoints, 20)).toBe(240);
   });
 });

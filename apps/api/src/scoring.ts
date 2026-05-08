@@ -73,3 +73,19 @@ export function computeTotalPoints(drinkList: unknown): {
   const totalPoints = Math.min(uncappedTotalPoints, MAX_TOTAL_POINTS);
   return { totalPoints, items };
 }
+
+export function computeAdditiveBonusMultiplier(multipliers: number[]): number {
+  const unlockedMultipliers = multipliers.filter((value) => Number.isFinite(value) && value > 1);
+  if (unlockedMultipliers.length === 0) return 1;
+  return unlockedMultipliers.reduce((sum, value) => sum + value, 0);
+}
+
+export function applyPointsMultiplier(basePoints: number, multiplier: number): number {
+  if (!Number.isInteger(basePoints) || basePoints < 0) {
+    throw new Error('base_points_invalid');
+  }
+  if (!Number.isFinite(multiplier) || multiplier < 1) {
+    throw new Error('points_multiplier_invalid');
+  }
+  return Math.floor(basePoints * multiplier);
+}

@@ -6,8 +6,7 @@ import { createHash } from 'crypto';
 import type { AppConfig } from './config.js';
 
 const DISTRIBUTE_REWARD_ABI = [
-  // Current VeBetter testnet rewards pool supports the deprecated entrypoint.
-  'function distributeRewardDeprecated(bytes32 appId,uint256 amount,address receiver,string rewardMetadata)'
+  'function distributeRewardWithProofAndMetadata(bytes32 appId,uint256 amount,address receiver,string[] proofTypes,string[] proofValues,string[] impactCodes,uint256[] impactValues,string description,string metadata)'
 ];
 
 const distributeIface = new Interface(DISTRIBUTE_REWARD_ABI);
@@ -73,7 +72,13 @@ export type SignRewardDistributionInput = {
   amountWei: bigint;
   claimId: string;
   description: string;
-  rewardMetadata: string;
+  proof: {
+    text: string;
+  };
+  impacts: {
+    plastic: number;
+  };
+  metadata: string;
 };
 
 export type RewardsChain = {
@@ -97,6 +102,9 @@ export function createRewardsChain(config: AppConfig): RewardsChain {
         // Keep basic validation behavior consistent with chain mode.
         getAddress(input.receiver);
         if (input.amountWei <= 0n) throw new Error('amount_invalid');
+        if (!input.proof.text.trim()) throw new Error('proof_invalid');
+        if (!Number.isFinite(input.impacts.plastic) || input.impacts.plastic < 0) throw new Error('impact_invalid');
+        JSON.parse(input.metadata);
 
         const rawTx = mockRawTx(input.claimId);
         const txHash = mockTxHashFromRawTx(rawTx);
@@ -171,18 +179,23 @@ export function createRewardsChain(config: AppConfig): RewardsChain {
 
       const receiver = getAddress(input.receiver);
       if (input.amountWei <= 0n) throw new Error('amount_invalid');
+      const proofText = input.proof.text.trim();
+      if (!proofText) throw new Error('proof_invalid');
+      if (!Number.isFinite(input.impacts.plastic) || input.impacts.plastic < 0) throw new Error('impact_invalid');
+      JSON.parse(input.metadata);
 
-      const rewardMetadata = JSON.stringify({
-        claimId: input.claimId,
-        description: input.description,
-        payload: input.rewardMetadata
-      });
+      const plasticImpact = Math.max(0, Math.floor(input.impacts.plastic));
 
-      const data = distributeIface.encodeFunctionData('distributeRewardDeprecated', [
+      const data = distributeIface.encodeFunctionData('distributeRewardWithProofAndMetadata', [
         ctx.cfg.appId,
         input.amountWei,
         receiver,
-        rewardMetadata
+        ['text'],
+        [proofText],
+        ['plastic'],
+        [plasticImpact],
+        input.description,
+        input.metadata
       ]);
 
       const rawTx = await ctx.signer!.signTransaction({

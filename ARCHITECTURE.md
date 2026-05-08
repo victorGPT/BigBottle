@@ -387,3 +387,24 @@ AWS S3:
 - Upload via presigned PUT.
 - Verification fetch via presigned GET.
 - On rejected submissions, object deletion is best-effort.
+
+## Task Notes
+
+### 2026-05-07 — VeBetter proof payload + plastic impact baseline formula
+- No code interface changes in this task.
+- Product rule clarified for future implementation:
+  - VeBetterDAO impact category should use `plastic` code (unit in grams by default minimum-unit guidance).
+  - BigBottle baseline example for bottle-size normalization uses `500ml` as reference size.
+  - For a counted batch, "unit ml plastic consumption decreases as bottle count increases" should be modeled as a monotonic function where per-ml plastic declines with quantity, while total plastic impact remains non-negative and auditable.
+
+### 2026-05-07 — On-chain sustainability proof payload for reward claims
+- Updated reward claim chain payload generation in `apps/api/src/rewards-service.ts`:
+  - Reward claims now call VeBetterDAO `distributeRewardWithProofAndMetadata`.
+  - Official proof fields are passed as contract arguments: `proofTypes=["text"]`, `impactCodes=["plastic"]`, and a description.
+  - Extra BigBottle tx detail is emitted through the `RewardMetadata` event as JSON metadata instead of being nested inside the proof payload.
+  - `impact.plastic` is populated for each claim using verified receipt source data.
+- Added `apps/api/src/plastic-impact.ts`:
+  - Exported `calculatePlasticReductionGrams(input)` to compute plastic reduction (grams) using a 500ml baseline and a monotonic decreasing per-ml plastic-intensity model as bottle count increases.
+- Added `supabase/migrations/20260508_reward_claim_sources.sql`:
+  - `reward_claim_sources` links reward claims to the verified receipt submissions used as claim sources.
+  - `bb_reward_claim_source_submissions(user_id)` returns verified submissions not already locked by active reward claims.

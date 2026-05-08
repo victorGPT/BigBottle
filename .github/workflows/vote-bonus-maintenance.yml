@@ -1,0 +1,62 @@
+name: Vote Bonus Maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      effective_round_id:
+        description: Optional effective round id. Defaults to latest VeBetterDAO round.
+        required: false
+        type: string
+      source_round_id:
+        description: Optional source round id. Defaults to effective_round_id - 1.
+        required: false
+        type: string
+      retain_rounds:
+        description: Number of recent effective rounds to retain.
+        required: false
+        type: string
+        default: "4"
+      dry_run:
+        description: If true, fetch and aggregate only without DB writes.
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: "20 0 * * *"
+
+jobs:
+  sync-vote-bonus:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      VEBETTER_DAO_SUBGRAPH_URL: ${{ vars.VEBETTER_DAO_SUBGRAPH_URL || 'https://graph.vet/subgraphs/name/vebetter/dao' }}
+      VEBETTER_APP_ID: ${{ secrets.VEBETTER_APP_ID || '' }}
+      EFFECTIVE_ROUND_ID: ${{ github.event.inputs.effective_round_id || '' }}
+      SOURCE_ROUND_ID: ${{ github.event.inputs.source_round_id || '' }}
+      RETAIN_ROUNDS: ${{ github.event.inputs.retain_rounds || vars.VOTE_BONUS_RETAIN_ROUNDS || '4' }}
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Validate secrets
+        if: env.DRY_RUN != 'true'
+        run: |
+          set -euo pipefail
+          if [[ -z "${SUPABASE_URL:-}" ]]; then
+            echo "SUPABASE_URL is empty. Please set repository secret SUPABASE_URL." >&2
+            exit 1
+          fi
+          if [[ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY is empty. Please set repository secret SUPABASE_SERVICE_ROLE_KEY." >&2
+            exit 1
+          fi
+
+      - name: Sync vote bonus eligibility
+        run: node scripts/ci/sync-vote-bonus.mjs

@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
-import { Wallet } from "ethers";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+let Wallet;
+try {
+  ({ Wallet } = await import("ethers"));
+} catch {
+  ({ Wallet } = require("../../apps/api/node_modules/ethers"));
+}
 
 const baseUrlRaw = process.env.REWARDS_API_BASE_URL?.trim();
 
@@ -159,8 +167,11 @@ async function run() {
   if (createClaim.status === 200) {
     assertStringB3tr(createClaim.json?.claim?.b3tr_amount, "POST /rewards/claim", createClaim.json);
     console.log("[rewards-api-smoke] PASS contract POST /rewards/claim claim.b3tr_amount is string");
-  } else if (createClaim.status === 409 && createClaim.json?.error === "insufficient_points") {
-    console.log("[rewards-api-smoke] PASS POST /rewards/claim -> insufficient_points (expected for empty account)");
+  } else if (
+    (createClaim.status === 409 && createClaim.json?.error === "insufficient_points") ||
+    (createClaim.status === 400 && createClaim.json?.error === "no_claimable_points")
+  ) {
+    console.log(`[rewards-api-smoke] PASS POST /rewards/claim -> ${createClaim.json.error} (expected for empty account)`);
   } else if (createClaim.status === 404 || createClaim.json?.error === "not_found") {
     fail("POST /rewards/claim with auth returned not_found", createClaim);
   } else {
