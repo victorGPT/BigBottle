@@ -4,6 +4,8 @@ set -euo pipefail
 PROJECT_REF="${SUPABASE_PROJECT_REF:-tbvkyvxdhrmfprcjyvbk}"
 FUNCTION_SLUG="${SUPABASE_FUNCTION_SLUG:-api}"
 API_BASE_URL="${SUPABASE_API_BASE_URL:-https://${PROJECT_REF}.supabase.co/functions/v1/${FUNCTION_SLUG}}"
+DEPLOY_ATTEMPTS="${SUPABASE_DEPLOY_ATTEMPTS:-3}"
+DEPLOY_RETRY_DELAY_SECONDS="${SUPABASE_DEPLOY_RETRY_DELAY_SECONDS:-15}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -16,10 +18,32 @@ run_supabase() {
 }
 
 echo "Deploying function '${FUNCTION_SLUG}' to project '${PROJECT_REF}' with verify_jwt disabled..."
-run_supabase functions deploy "${FUNCTION_SLUG}" \
-  --project-ref "${PROJECT_REF}" \
-  --no-verify-jwt \
-  --use-api
+deploy_function_once() {
+  run_supabase functions deploy "${FUNCTION_SLUG}" \
+    --project-ref "${PROJECT_REF}" \
+    --no-verify-jwt \
+    --use-api
+}
+
+for attempt in $(seq 1 "${DEPLOY_ATTEMPTS}"); do
+  set +e
+  deploy_output="$(deploy_function_once 2>&1)"
+  deploy_status=$?
+  set -e
+  printf '%s\n' "${deploy_output}"
+
+  if [[ "${deploy_status}" -eq 0 ]]; then
+    break
+  fi
+
+  if [[ "${attempt}" -ge "${DEPLOY_ATTEMPTS}" ]]; then
+    echo "Supabase function deploy failed after ${DEPLOY_ATTEMPTS} attempts." >&2
+    exit "${deploy_status}"
+  fi
+
+  echo "::warning::Supabase function deploy failed on attempt ${attempt}/${DEPLOY_ATTEMPTS}; retrying in ${DEPLOY_RETRY_DELAY_SECONDS}s."
+  sleep "${DEPLOY_RETRY_DELAY_SECONDS}"
+done
 
 functions_json="$(
   run_supabase functions list --project-ref "${PROJECT_REF}" -o json

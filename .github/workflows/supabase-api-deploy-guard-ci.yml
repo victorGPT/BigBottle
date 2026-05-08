@@ -18,6 +18,8 @@ jobs:
           set -euo pipefail
           bash scripts/ci/test_check_supabase_api_deploy_canonical.sh
           bash scripts/ci/test_ensure_supabase_public_auth_routes.sh
+          bash scripts/ci/test_deploy_supabase_api.sh
+          bash scripts/ci/test_push_supabase_migrations.sh
 
       - name: Reject non-canonical Supabase API deploys
         run: |
