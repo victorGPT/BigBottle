@@ -29,6 +29,9 @@ export type DbReceiptSubmission = {
   receipt_time_raw: string | null;
   retinfo_is_availd: string | null;
   time_threshold: string | null;
+  points_base: number;
+  points_multiplier: number | string;
+  points_bonus_sources: unknown;
   points_total: number;
   receipt_fingerprint: string | null;
   rejection_code: string | null;

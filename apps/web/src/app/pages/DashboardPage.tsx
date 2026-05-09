@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Screen from '../components/Screen';
 import BottomTabBar from '../components/BottomTabBar';
 import BrandLogo from '../components/BrandLogo';
+import ClaimStatusPanel, { getClaimButtonLabel } from '../components/ClaimStatusPanel';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
 
@@ -58,8 +59,17 @@ export default function DashboardPage() {
   const [claims, setClaims] = useState<RewardClaim[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isClaiming, setIsClaiming] = useState(false);
+  const [settledClaim, setSettledClaim] = useState<RewardClaim | null>(null);
 
   const inflight = useMemo(() => claims.find((c) => c.status === 'pending' || c.status === 'submitted') ?? null, [claims]);
+  const claimStatus = inflight ?? settledClaim;
+  const claimButtonLabel = getClaimButtonLabel({
+    inflight,
+    isClaiming,
+    settledClaim,
+    pointsAvailable: quote?.points_available ?? null,
+    claimingLabel: 'PROCESSING…'
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -132,11 +142,39 @@ export default function DashboardPage() {
     }
   }
 
+  useEffect(() => {
+    if (!token) return;
+    if (!inflight) return;
+
+    const id = inflight.id;
+    let cancelled = false;
+    const t = window.setInterval(async () => {
+      try {
+        const res = await apiGet<{ claim: RewardClaim }>(`/rewards/claims/${id}`, token);
+        if (cancelled) return;
+        setClaims((prev) => prev.map((c) => (c.id === id ? res.claim : c)));
+        if (res.claim.status === 'confirmed' || res.claim.status === 'failed') {
+          setSettledClaim(res.claim);
+          window.clearInterval(t);
+          await refreshQuote();
+        }
+      } catch {
+        // Ignore polling errors.
+      }
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [token, inflight, inflight?.id]);
+
   async function onClaim() {
     if (!token || isClaiming || inflight) return;
     if (!quote || quote.points_available <= 0) return;
 
     setIsClaiming(true);
+    setSettledClaim(null);
     setError(null);
     try {
       const clientClaimId = crypto.randomUUID();
@@ -154,6 +192,9 @@ export default function DashboardPage() {
         }
         return [res.claim, ...prev];
       });
+      if (res.claim.status === 'confirmed' || res.claim.status === 'failed') {
+        setSettledClaim(res.claim);
+      }
       await refreshQuote();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -202,7 +243,7 @@ export default function DashboardPage() {
               disabled={!quote || quote.points_available <= 0 || isClaiming || Boolean(inflight) || !isLoggedIn}
               className="rounded-2xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-black shadow-[0_10px_40px_rgba(16,185,129,0.18)] transition disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.99]"
             >
-              {inflight ? 'PROCESSING' : isClaiming ? 'PROCESSING…' : 'CLAIM'}
+              {claimButtonLabel}
             </button>
           </div>
           {quote && quote.points_available > 0 && (
@@ -210,6 +251,8 @@ export default function DashboardPage() {
               Available: {quote.points_available.toLocaleString()} points
             </div>
           )}
+
+          {claimStatus && <ClaimStatusPanel claim={claimStatus} className="mt-4 rounded-2xl bg-black/20 px-4 py-3" />}
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
