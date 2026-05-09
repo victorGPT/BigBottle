@@ -87,6 +87,14 @@ File: `apps/web/src/app/App.tsx`
 Auth gating:
 - `apps/web/src/app/components/RequireLogin.tsx` wraps protected routes.
 
+### Brand Logo UI
+File: `apps/web/src/app/components/BrandLogo.tsx`
+- Shared BigBottle logo image component backed by `apps/web/public/bigbottle-logo-header.png`.
+- Used in the Dashboard header and Account header.
+
+Public exports:
+- `BrandLogo(props: { className?: string, alt?: string }): JSX.Element`
+
 ### Claim Status UI
 File: `apps/web/src/app/components/ClaimStatusPanel.tsx`
 - Shared claim status panel used by Dashboard and Rewards for in-flight and terminal claim states.

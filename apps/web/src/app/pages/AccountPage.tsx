@@ -6,6 +6,7 @@ import { Coins, LifeBuoy, Medal, ReceiptText } from 'lucide-react';
 
 import Screen from '../components/Screen';
 import BottomTabBar from '../components/BottomTabBar';
+import BrandLogo from '../components/BrandLogo';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
 
@@ -228,7 +229,7 @@ export default function AccountPage() {
             <div className="text-xl font-semibold tracking-tight">Account</div>
             <div className="mt-1 text-xs text-white/50">Manage your profile</div>
           </div>
-          <div className="h-10 w-10 rounded-full border border-white/10 bg-white/5" />
+          <BrandLogo className="h-10 w-10 shadow-[0_10px_30px_rgba(1,227,92,0.16)]" />
         </div>
 
         <div className="mt-6 rounded-2xl border border-[#1E3A1E] bg-[#0F1F0F]/60 p-4">

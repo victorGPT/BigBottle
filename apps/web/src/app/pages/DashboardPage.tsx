@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Screen from '../components/Screen';
 import BottomTabBar from '../components/BottomTabBar';
+import BrandLogo from '../components/BrandLogo';
 import ClaimStatusPanel, { getClaimButtonLabel } from '../components/ClaimStatusPanel';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
@@ -206,9 +207,12 @@ export default function DashboardPage() {
     <Screen>
       <div className="relative mx-auto min-h-dvh max-w-[420px] px-5 pb-32 pt-10">
         <div className="flex items-start justify-between">
-          <div>
-            <div className="text-lg font-semibold tracking-tight">BIG BOTTLE</div>
-            <div className="mt-1 text-[11px] text-white/50">B3TR Receipt MVP (Phase 1)</div>
+          <div className="flex min-w-0 items-center gap-3">
+            <BrandLogo className="h-11 w-11 shadow-[0_10px_30px_rgba(1,227,92,0.18)]" alt="" />
+            <div className="min-w-0">
+              <div className="text-lg font-semibold tracking-tight">BigBottle</div>
+              <div className="mt-1 text-[11px] text-white/50">B3TR Receipt MVP (Phase 1)</div>
+            </div>
           </div>
           <button
             type="button"
