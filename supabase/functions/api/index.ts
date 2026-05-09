@@ -50,6 +50,7 @@ type AppConfig = {
   X2EARN_REWARDS_POOL_ADDRESS?: string;
   FEE_DELEGATION_URL?: string;
   REWARD_DISTRIBUTOR_PRIVATE_KEY?: string;
+  VEBETTER_CURRENT_EFFECTIVE_ROUND_ID?: number;
   // VeChain mainnet config for GM-NFT lookup
   VECHAIN_THOR_URL?: string;
   VEBETTER_GALAXY_MEMBER_ADDRESS?: string;
@@ -87,6 +88,11 @@ function loadConfig(): AppConfig {
   const X2EARN_REWARDS_POOL_ADDRESS = envString("X2EARN_REWARDS_POOL_ADDRESS");
   const FEE_DELEGATION_URL = envString("FEE_DELEGATION_URL");
   const REWARD_DISTRIBUTOR_PRIVATE_KEY = envString("REWARD_DISTRIBUTOR_PRIVATE_KEY");
+  const VEBETTER_CURRENT_EFFECTIVE_ROUND_ID_RAW = envString("VEBETTER_CURRENT_EFFECTIVE_ROUND_ID");
+  const VEBETTER_CURRENT_EFFECTIVE_ROUND_ID =
+    VEBETTER_CURRENT_EFFECTIVE_ROUND_ID_RAW === undefined
+      ? undefined
+      : Number(VEBETTER_CURRENT_EFFECTIVE_ROUND_ID_RAW);
 
   const missing: string[] = [];
   if (!JWT_SECRET) missing.push("JWT_SECRET");
@@ -114,6 +120,12 @@ function loadConfig(): AppConfig {
     if (!X2EARN_REWARDS_POOL_ADDRESS) missing.push("X2EARN_REWARDS_POOL_ADDRESS");
     if (!FEE_DELEGATION_URL) missing.push("FEE_DELEGATION_URL");
     if (!REWARD_DISTRIBUTOR_PRIVATE_KEY) missing.push("REWARD_DISTRIBUTOR_PRIVATE_KEY");
+  }
+  if (
+    VEBETTER_CURRENT_EFFECTIVE_ROUND_ID_RAW !== undefined &&
+    (!Number.isInteger(VEBETTER_CURRENT_EFFECTIVE_ROUND_ID) || VEBETTER_CURRENT_EFFECTIVE_ROUND_ID <= 0)
+  ) {
+    missing.push("VEBETTER_CURRENT_EFFECTIVE_ROUND_ID");
   }
   if (missing.length) {
     throw new Error(`Missing required env vars: ${missing.join(", ")}`);
@@ -143,6 +155,7 @@ function loadConfig(): AppConfig {
     X2EARN_REWARDS_POOL_ADDRESS,
     FEE_DELEGATION_URL,
     REWARD_DISTRIBUTOR_PRIVATE_KEY,
+    VEBETTER_CURRENT_EFFECTIVE_ROUND_ID,
     // GM-NFT lookup defaults
     VECHAIN_THOR_URL: envString("VECHAIN_THOR_URL") ?? "https://mainnet.vechain.org",
     VEBETTER_GALAXY_MEMBER_ADDRESS: envString("VEBETTER_GALAXY_MEMBER_ADDRESS") ?? "0x93B8cD34A7Fc4f53271b9011161F7A2B5fEA9D1F",
@@ -239,6 +252,9 @@ type DbReceiptSubmission = {
   receipt_time_raw: string | null;
   retinfo_is_availd: string | null;
   time_threshold: string | null;
+  points_base: number;
+  points_multiplier: number | string;
+  points_bonus_sources: unknown;
   points_total: number;
   receipt_fingerprint: string | null;
   rejection_code: string | null;
@@ -844,10 +860,38 @@ const DEFAULT_ACHIEVEMENT_DEFINITIONS: Record<string, AchievementDefinition> = {
   },
 };
 
+type ReceiptBonusSource =
+  | {
+      type: "vebetter_vote_bonus";
+      multiplier: number;
+      effective_round_id: number;
+      source_round_id: number;
+    }
+  | {
+      type: "gm_nft";
+      multiplier: number;
+      level: number;
+      name: string;
+    };
+
+type ReceiptBonusSnapshot = {
+  multiplier: number;
+  sources: ReceiptBonusSource[];
+};
+
+const EMPTY_RECEIPT_BONUS_SNAPSHOT: ReceiptBonusSnapshot = {
+  multiplier: 1,
+  sources: [],
+};
+
 function toSafeMultiplier(value: unknown, fallback = 1): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(1, n);
+}
+
+function resolveBonusMultiplier(value: unknown, defaultMultiplier: number): number {
+  return Math.max(toSafeMultiplier(value, defaultMultiplier), defaultMultiplier);
 }
 
 function computeAdditiveBonusMultiplier(multipliers: number[]): number {
@@ -1047,33 +1091,54 @@ async function getHighestGmNftByOwner(
   };
 }
 
-async function getReceiptBonusMultiplier(input: {
+async function getReceiptBonusSnapshot(input: {
   config: AppConfig;
   repo: ReturnType<typeof createRepo>;
   userId: string;
   wallet: string;
-}): Promise<number> {
-  const multipliers: number[] = [];
+  effectiveRoundId?: number;
+}): Promise<ReceiptBonusSnapshot> {
+  const sources: ReceiptBonusSource[] = [];
 
   try {
     const vebetterVote = await input.repo.getLatestUserBonusEligibility({
       user_id: input.userId,
       wallet_address: input.wallet,
       bonus_type: "vebetter_vote_bonus",
+      ...(input.effectiveRoundId === undefined ? {} : { effective_round_id: input.effectiveRoundId }),
     });
-    if (vebetterVote) multipliers.push(DEFAULT_ACHIEVEMENT_DEFINITIONS.vebetter_vote_bonus.base_multiplier);
+    if (vebetterVote) {
+      const defaultMultiplier = toSafeMultiplier(DEFAULT_ACHIEVEMENT_DEFINITIONS.vebetter_vote_bonus.base_multiplier);
+      const multiplier = resolveBonusMultiplier(vebetterVote.bonus_multiplier, defaultMultiplier);
+      sources.push({
+        type: "vebetter_vote_bonus",
+        multiplier,
+        effective_round_id: vebetterVote.effective_round_id,
+        source_round_id: vebetterVote.source_round_id,
+      });
+    }
   } catch (err) {
     console.warn("vote_bonus_lookup_failed", { wallet: input.wallet, userId: input.userId, error: String(err) });
   }
 
   try {
     const highestGmNft = await getHighestGmNftByOwner(input.config, input.wallet);
-    if (highestGmNft) multipliers.push(DEFAULT_ACHIEVEMENT_DEFINITIONS.gm_nft.base_multiplier);
+    if (highestGmNft) {
+      sources.push({
+        type: "gm_nft",
+        multiplier: toSafeMultiplier(DEFAULT_ACHIEVEMENT_DEFINITIONS.gm_nft.base_multiplier),
+        level: highestGmNft.level,
+        name: highestGmNft.name,
+      });
+    }
   } catch (err) {
     console.warn("gm_nft_lookup_failed", { wallet: input.wallet, error: String(err) });
   }
 
-  return computeAdditiveBonusMultiplier(multipliers);
+  return {
+    multiplier: computeAdditiveBonusMultiplier(sources.map((source) => source.multiplier)),
+    sources,
+  };
 }
 
 function normalizeBoolString(input: string): string {
@@ -1986,6 +2051,17 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
     const wallet = authed.wallet;
     const repo = getRepo();
+    const url = new URL(req.url);
+    const effectiveRoundIdRaw = url.searchParams.get("effective_round_id");
+    const effectiveRoundId =
+      effectiveRoundIdRaw === null ? undefined : Number(effectiveRoundIdRaw);
+    if (
+      effectiveRoundIdRaw !== null &&
+      (!Number.isInteger(effectiveRoundId) || effectiveRoundId <= 0)
+    ) {
+      return errorResponse(config, req, 400, "invalid_query");
+    }
+    const targetEffectiveRoundId = effectiveRoundId ?? config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID;
 
     let definitions = Object.values(DEFAULT_ACHIEVEMENT_DEFINITIONS)
       .filter((item) => item.enabled)
@@ -2004,6 +2080,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         user_id: authed.sub,
         wallet_address: wallet,
         bonus_type: "vebetter_vote_bonus",
+        ...(targetEffectiveRoundId === undefined ? {} : { effective_round_id: targetEffectiveRoundId }),
       });
     } catch (err) {
       console.warn("vote_bonus_lookup_failed", { wallet, userId: authed.sub, error: String(err) });
@@ -2020,7 +2097,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       if (definition.key === "vebetter_vote_bonus") {
         const unlocked = Boolean(vebetterVote);
         const multiplier = unlocked
-          ? Math.max(toSafeMultiplier(vebetterVote?.bonus_multiplier, definition.base_multiplier), definition.base_multiplier)
+          ? resolveBonusMultiplier(vebetterVote?.bonus_multiplier, definition.base_multiplier)
           : 1;
         const description = unlocked
           ? renderTemplate(definition.unlocked_description_template, {
@@ -2469,6 +2546,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         const updated = await repo.updateSubmission(claimed.id, {
           status: "rejected",
           dify_raw: difyRaw as any,
+          points_base: 0,
+          points_multiplier: 1,
+          points_bonus_sources: [],
           points_total: 0,
           verified_at: new Date().toISOString(),
         });
@@ -2521,11 +2601,20 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
       const ok = retinfoIsAvaild === "true" && timeThreshold === "false";
       const { totalPoints: basePoints } = computeTotalPoints(payload.drinkList);
-      const bonusMultiplier =
+      const bonusSnapshot =
         ok && basePoints > 0
-          ? await getReceiptBonusMultiplier({ config, repo, userId: authed.sub, wallet: authed.wallet })
-          : 1;
-      const totalPoints = ok ? applyPointsMultiplier(basePoints, bonusMultiplier) : 0;
+          ? await getReceiptBonusSnapshot({
+              config,
+              repo,
+              userId: authed.sub,
+              wallet: authed.wallet,
+              ...(config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID === undefined
+                ? {}
+                : { effectiveRoundId: config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID }),
+            })
+          : EMPTY_RECEIPT_BONUS_SNAPSHOT;
+      const earnedBasePoints = ok ? basePoints : 0;
+      const totalPoints = ok ? applyPointsMultiplier(earnedBasePoints, bonusSnapshot.multiplier) : 0;
       const finalStatus = ok ? (totalPoints > 0 ? "verified" : "not_claimable") : "rejected";
 
       const tFingerprint = performance.now();
@@ -2548,6 +2637,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           receipt_time_raw: receiptTimeRaw,
           retinfo_is_availd: retinfoIsAvaild,
           time_threshold: timeThreshold,
+          points_base: earnedBasePoints,
+          points_multiplier: bonusSnapshot.multiplier,
+          points_bonus_sources: bonusSnapshot.sources,
           points_total: totalPoints,
           receipt_fingerprint: finalStatus === "verified" ? receiptFingerprint : null,
           rejection_code: null,
@@ -2565,6 +2657,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
             receipt_time_raw: receiptTimeRaw,
             retinfo_is_availd: retinfoIsAvaild,
             time_threshold: timeThreshold,
+            points_base: 0,
+            points_multiplier: 1,
+            points_bonus_sources: [],
             points_total: 0,
             receipt_fingerprint: receiptFingerprint,
             rejection_code: "duplicate_receipt",
@@ -2574,6 +2669,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         } else if (finalStatus === "verified" && isDailyLimitError(err, "daily_verified_limit_exceeded")) {
           await repo.updateSubmission(claimed.id, {
             status: "uploaded",
+            points_base: 0,
+            points_multiplier: 1,
+            points_bonus_sources: [],
             points_total: 0,
             receipt_fingerprint: null,
             rejection_code: null,
@@ -2620,6 +2718,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           message: err instanceof Error ? err.message : String(err),
           at: new Date().toISOString(),
         } as any,
+        points_base: 0,
+        points_multiplier: 1,
+        points_bonus_sources: [],
         points_total: 0,
         verified_at: new Date().toISOString(),
       });

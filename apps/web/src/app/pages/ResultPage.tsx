@@ -7,6 +7,9 @@ import { apiGet } from '../../util/api';
 type Submission = {
   id: string;
   status: 'pending_upload' | 'uploaded' | 'verifying' | 'verified' | 'rejected' | 'not_claimable' | string;
+  points_base?: number;
+  points_multiplier?: number | string;
+  points_bonus_sources?: unknown;
   points_total: number;
   dify_drink_list: unknown | null;
   rejection_code: string | null;
@@ -17,6 +20,31 @@ type Submission = {
 function asDrinkList(value: unknown): Array<{ retinfoDrinkName?: unknown; retinfoDrinkCapacity?: unknown; retinfoDrinkAmount?: unknown }> {
   if (!Array.isArray(value)) return [];
   return value as any[];
+}
+
+function asBonusSources(value: unknown): Array<{ type?: unknown; multiplier?: unknown; name?: unknown; level?: unknown }> {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object');
+}
+
+function toDisplayNumber(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function formatMultiplier(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function bonusSourceLabel(source: { type?: unknown; multiplier?: unknown; name?: unknown; level?: unknown }): string {
+  const multiplier = formatMultiplier(toDisplayNumber(source.multiplier, 1));
+  if (source.type === 'gm_nft') {
+    const name = typeof source.name === 'string' && source.name ? source.name : 'GM-NFT';
+    return `${name} GM-NFT · x${multiplier}`;
+  }
+  if (source.type === 'vebetter_vote_bonus') return `VeBetterDAO Voter · x${multiplier}`;
+  if (source.type === 'legacy_points_total') return 'Legacy receipt · final points only';
+  return `Bonus · x${multiplier}`;
 }
 
 export default function ResultPage() {
@@ -69,6 +97,11 @@ export default function ResultPage() {
 
   const status = submission.status;
   const totalPoints = submission.points_total ?? 0;
+  const bonusSources = asBonusSources(submission.points_bonus_sources);
+  const hasPointsAudit =
+    submission.points_base !== undefined || submission.points_multiplier !== undefined || bonusSources.length > 0;
+  const basePoints = toDisplayNumber(submission.points_base, totalPoints);
+  const multiplier = toDisplayNumber(submission.points_multiplier, 1);
   const rejectionCode = submission.rejection_code;
 
   if (status === 'rejected' && rejectionCode === 'duplicate_receipt') {
@@ -277,6 +310,32 @@ export default function ResultPage() {
               {isClaimable ? `+${totalPoints}` : `${totalPoints}`}
             </div>
           </div>
+
+          {hasPointsAudit && (
+            <div className="mt-4 grid grid-cols-2 border-y border-white/10 py-3">
+              <div className="border-r border-white/10 pr-3">
+                <div className="text-[10px] tracking-[0.18em] text-white/40">BASE POINTS</div>
+                <div className="mt-1 text-base font-semibold tabular-nums text-white">{basePoints}</div>
+              </div>
+              <div className="pl-3">
+                <div className="text-[10px] tracking-[0.18em] text-white/40">MULTIPLIER</div>
+                <div className="mt-1 text-base font-semibold tabular-nums text-white">x{formatMultiplier(multiplier)}</div>
+              </div>
+            </div>
+          )}
+
+          {bonusSources.length > 0 && (
+            <div className="mt-3 border-b border-white/10 pb-3">
+              <div className="text-[10px] tracking-[0.18em] text-emerald-100/60">REWARD SOURCES</div>
+              <div className="mt-2 space-y-1">
+                {bonusSources.map((source, idx) => (
+                  <div key={idx} className="text-xs text-emerald-50/85">
+                    {bonusSourceLabel(source)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {isNotClaimable && (
             <div className="mt-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-100">

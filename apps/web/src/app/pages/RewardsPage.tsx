@@ -1,5 +1,6 @@
 import Screen from '../components/Screen';
 import BottomTabBar from '../components/BottomTabBar';
+import ClaimStatusPanel, { getClaimButtonLabel } from '../components/ClaimStatusPanel';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
@@ -51,8 +52,17 @@ export default function RewardsPage() {
   const [claims, setClaims] = useState<RewardClaim[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isClaiming, setIsClaiming] = useState(false);
+  const [settledClaim, setSettledClaim] = useState<RewardClaim | null>(null);
 
   const inflight = useMemo(() => claims.find((c) => c.status === 'pending' || c.status === 'submitted') ?? null, [claims]);
+  const claimStatus = inflight ?? settledClaim;
+  const claimButtonLabel = getClaimButtonLabel({
+    inflight,
+    isClaiming,
+    settledClaim,
+    pointsAvailable: quote?.points_available ?? null,
+    claimingLabel: 'CLAIMING…'
+  });
 
   async function refreshAll() {
     if (!token) return;
@@ -100,6 +110,7 @@ export default function RewardsPage() {
         if (cancelled) return;
         setClaims((prev) => prev.map((c) => (c.id === id ? res.claim : c)));
         if (res.claim.status === 'confirmed' || res.claim.status === 'failed') {
+          setSettledClaim(res.claim);
           window.clearInterval(t);
           await refreshAll();
         }
@@ -121,6 +132,7 @@ export default function RewardsPage() {
     if (!quote || quote.points_available <= 0) return;
 
     setIsClaiming(true);
+    setSettledClaim(null);
     setError(null);
     try {
       const clientClaimId = crypto.randomUUID();
@@ -138,6 +150,9 @@ export default function RewardsPage() {
         }
         return [res.claim, ...prev];
       });
+      if (res.claim.status === 'confirmed' || res.claim.status === 'failed') {
+        setSettledClaim(res.claim);
+      }
       await refreshAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -174,7 +189,7 @@ export default function RewardsPage() {
               disabled={!quote || quote.points_available <= 0 || isClaiming || Boolean(inflight)}
               className="rounded-2xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-black shadow-[0_10px_40px_rgba(16,185,129,0.18)] transition disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.99]"
             >
-              {inflight ? 'PROCESSING' : isClaiming ? 'CLAIMING…' : 'CLAIM'}
+              {claimButtonLabel}
             </button>
           </div>
 
@@ -206,24 +221,7 @@ export default function RewardsPage() {
           </div>
         </div>
 
-        {inflight && (
-          <div className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="text-[10px] tracking-[0.24em] text-white/40">IN FLIGHT</div>
-            <div className="mt-2 flex items-center justify-between">
-              <div className="text-sm font-medium">
-                {inflight.status === 'submitted' ? 'Submitted' : inflight.status === 'pending' ? 'Pending' : inflight.status}
-              </div>
-              {inflight.tx_hash && (
-                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/70">
-                  {shortHash(inflight.tx_hash)}
-                </div>
-              )}
-            </div>
-            <div className="mt-2 text-[11px] text-white/50">
-              {inflight.tx_hash ? '区块确认中，页面会自动刷新状态。' : '交易准备中，请稍候。'}
-            </div>
-          </div>
-        )}
+        {claimStatus && <ClaimStatusPanel claim={claimStatus} className="mt-4 rounded-3xl bg-white/5 p-5" />}
 
         <div className="mt-6 flex items-center justify-between">
           <div className="text-[10px] tracking-[0.22em] text-white/40">CLAIM HISTORY</div>

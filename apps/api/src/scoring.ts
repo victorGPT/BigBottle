@@ -80,6 +80,12 @@ export function computeAdditiveBonusMultiplier(multipliers: number[]): number {
   return unlockedMultipliers.reduce((sum, value) => sum + value, 0);
 }
 
+export function resolveBonusMultiplier(value: unknown, defaultMultiplier: number): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  const resolved = Number.isFinite(n) ? n : defaultMultiplier;
+  return Math.max(1, defaultMultiplier, resolved);
+}
+
 export function applyPointsMultiplier(basePoints: number, multiplier: number): number {
   if (!Number.isInteger(basePoints) || basePoints < 0) {
     throw new Error('base_points_invalid');

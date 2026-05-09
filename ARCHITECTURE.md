@@ -82,11 +82,19 @@ File: `apps/web/src/app/App.tsx`
 - `/account` -> `AccountPage` (login lives here)
 - `/scan` -> `ScanPage` (requires login)
 - `/result/:id` -> `ResultPage` (requires login)
-- `/staking` -> `StakingPage` (requires login; placeholder)
 - `/rewards` -> `RewardsPage` (requires login; points -> B3TR claim UI)
 
 Auth gating:
 - `apps/web/src/app/components/RequireLogin.tsx` wraps protected routes.
+
+### Claim Status UI
+File: `apps/web/src/app/components/ClaimStatusPanel.tsx`
+- Shared claim status panel used by Dashboard and Rewards for in-flight and terminal claim states.
+
+Public exports:
+- `ClaimStatusSnapshot`
+- `getClaimButtonLabel(input): string`
+- `ClaimStatusPanel(props): JSX.Element`
 
 ### Backend API Base URL
 File: `apps/web/src/util/api.ts`
@@ -131,6 +139,11 @@ Flow:
 File: `apps/web/src/app/pages/ResultPage.tsx`
 - Shows a dedicated branch for duplicates:
   - `status = rejected` and `rejection_code = duplicate_receipt`
+- Shows a per-receipt points audit breakdown when available:
+  - `points_total`: final awarded points
+  - `points_base`: receipt base points before achievement bonuses
+  - `points_multiplier`: applied achievement multiplier
+  - `points_bonus_sources`: JSON source snapshot such as GM-NFT, VeBetterDAO voter, or legacy final-points-only receipts
 
 ### Client Image Compression
 File: `apps/web/src/util/receiptImageCompression.ts`
@@ -156,6 +169,7 @@ File: `apps/api/src/index.ts`
 - Fastify server with CORS and JWT auth (`Authorization: Bearer <token>`)
 - Uses Supabase (service role) as the app database, not Supabase Auth
 - Uses AWS S3 presigned PUT/GET for image upload and verification
+- Receipt verification persists the points audit snapshot (`points_base`, `points_multiplier`, `points_bonus_sources`) together with `points_total`.
 
 ### Config (Env Vars)
 File: `apps/api/src/config.ts`
@@ -272,6 +286,7 @@ Config:
   - `X2EARN_REWARDS_POOL_ADDRESS`
   - `FEE_DELEGATION_URL`
   - `REWARD_DISTRIBUTOR_PRIVATE_KEY`
+  - `VEBETTER_CURRENT_EFFECTIVE_ROUND_ID` (optional; limits vote bonus lookup to the active effective round for receipt verification and achievement display)
 
 ## Database (Supabase Postgres)
 
@@ -326,6 +341,21 @@ Functions:
 
 Constraints:
 - partial unique index on `receipt_fingerprint` where `status='verified' and receipt_fingerprint is not null`
+
+### `supabase/migrations/202605090001_receipt_points_audit.sql`
+Columns added to `public.receipt_submissions`:
+- `points_base integer not null default 0`
+- `points_multiplier numeric(12, 4) not null default 1`
+- `points_bonus_sources jsonb not null default []`
+
+Backfill:
+- Existing rows keep their final `points_total`; legacy positive rows set `points_base = points_total`, `points_multiplier = 1`, and a `legacy_points_total` source marker because historical bonus sources cannot be reconstructed.
+- The migration temporarily drops and recreates the `updated_at` trigger around the backfill so historical `updated_at` values are not rewritten.
+
+Constraints:
+- `points_base >= 0`
+- `points_multiplier >= 1`
+- `points_bonus_sources` must be a JSON array
 
 ### `supabase/migrations/20260208_z_account_summary.sql`
 Functions:

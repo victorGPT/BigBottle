@@ -5,7 +5,8 @@ import {
   computeTotalPoints,
   parseAmount,
   parseCapacityMl,
-  pointsForCapacityMl
+  pointsForCapacityMl,
+  resolveBonusMultiplier
 } from './scoring.js';
 
 describe('scoring', () => {
@@ -80,6 +81,13 @@ describe('scoring', () => {
     expect(computeAdditiveBonusMultiplier([10])).toBe(10);
     expect(computeAdditiveBonusMultiplier([10, 10])).toBe(20);
     expect(computeAdditiveBonusMultiplier([1, 10])).toBe(10);
+  });
+
+  it('resolves unlocked bonus multiplier from eligibility snapshot', () => {
+    expect(resolveBonusMultiplier(25, 10)).toBe(25);
+    expect(resolveBonusMultiplier('12.5', 10)).toBe(12.5);
+    expect(resolveBonusMultiplier(2, 10)).toBe(10);
+    expect(resolveBonusMultiplier(null, 10)).toBe(10);
   });
 
   it('applies additive bonus multiplier after base receipt scoring', () => {
