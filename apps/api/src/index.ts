@@ -10,7 +10,12 @@ import './types.js';
 import { loadConfig } from './config.js';
 import { buildLoginTypedData, verifyLoginSignature } from './auth.js';
 import { createRepo, createSupabaseAdmin, type DbRewardClaim } from './supabase.js';
-import { applyPointsMultiplier, computeAdditiveBonusMultiplier, computeTotalPoints } from './scoring.js';
+import {
+  applyPointsMultiplier,
+  computeAdditiveBonusMultiplier,
+  computeTotalPoints,
+  resolveBonusMultiplier
+} from './scoring.js';
 import { createS3Client, deleteObject, headObject, presignGetObject, presignPutObject } from './s3.js';
 import { extractDifyReceiptPayload, runDify } from './dify.js';
 import { isUniqueViolation } from './postgres-errors.js';
@@ -84,6 +89,30 @@ const AccountAchievementsQuery = z.object({
 
 const VEBETTER_VOTE_BONUS_MULTIPLIER = 10;
 const GM_NFT_BONUS_MULTIPLIER = 10;
+
+type ReceiptBonusSource =
+  | {
+      type: 'vebetter_vote_bonus';
+      multiplier: number;
+      effective_round_id: number;
+      source_round_id: number;
+    }
+  | {
+      type: 'gm_nft';
+      multiplier: number;
+      level: number;
+      name: string;
+    };
+
+type ReceiptBonusSnapshot = {
+  multiplier: number;
+  sources: ReceiptBonusSource[];
+};
+
+const EMPTY_RECEIPT_BONUS_SNAPSHOT: ReceiptBonusSnapshot = {
+  multiplier: 1,
+  sources: []
+};
 
 function requireAuth() {
   return async function authenticate(request: any, reply: any) {
@@ -200,14 +229,14 @@ async function getHighestGmNftByOwner(walletAddress: string): Promise<{ level: n
   };
 }
 
-async function getReceiptBonusMultiplier(input: {
+async function getReceiptBonusSnapshot(input: {
   repo: ReturnType<typeof createRepo>;
   userId: string;
   wallet: string;
   effectiveRoundId?: number;
   log?: { warn: (obj: unknown, msg?: string) => void };
-}): Promise<number> {
-  const multipliers: number[] = [];
+}): Promise<ReceiptBonusSnapshot> {
+  const sources: ReceiptBonusSource[] = [];
 
   try {
     const vebetterVote = await input.repo.getLatestUserBonusEligibility({
@@ -216,19 +245,37 @@ async function getReceiptBonusMultiplier(input: {
       bonus_type: 'vebetter_vote_bonus',
       ...(input.effectiveRoundId === undefined ? {} : { effective_round_id: input.effectiveRoundId })
     });
-    if (vebetterVote) multipliers.push(VEBETTER_VOTE_BONUS_MULTIPLIER);
+    if (vebetterVote) {
+      const multiplier = resolveBonusMultiplier(vebetterVote.bonus_multiplier, VEBETTER_VOTE_BONUS_MULTIPLIER);
+      sources.push({
+        type: 'vebetter_vote_bonus',
+        multiplier,
+        effective_round_id: vebetterVote.effective_round_id,
+        source_round_id: vebetterVote.source_round_id
+      });
+    }
   } catch (err) {
     input.log?.warn({ err, wallet: input.wallet, userId: input.userId }, 'vote_bonus_lookup_failed');
   }
 
   try {
     const highestGmNft = await getHighestGmNftByOwner(input.wallet);
-    if (highestGmNft) multipliers.push(GM_NFT_BONUS_MULTIPLIER);
+    if (highestGmNft) {
+      sources.push({
+        type: 'gm_nft',
+        multiplier: GM_NFT_BONUS_MULTIPLIER,
+        level: highestGmNft.level,
+        name: highestGmNft.name
+      });
+    }
   } catch (err) {
     input.log?.warn({ err, wallet: input.wallet }, 'gm_nft_lookup_failed');
   }
 
-  return computeAdditiveBonusMultiplier(multipliers);
+  return {
+    multiplier: computeAdditiveBonusMultiplier(sources.map((source) => source.multiplier)),
+    sources
+  };
 }
 
 async function main() {
@@ -390,7 +437,9 @@ async function main() {
     }
 
     const unlocked = Boolean(vebetterVote);
-    const multiplier = unlocked ? VEBETTER_VOTE_BONUS_MULTIPLIER : 1;
+    const multiplier = unlocked
+      ? resolveBonusMultiplier(vebetterVote?.bonus_multiplier, VEBETTER_VOTE_BONUS_MULTIPLIER)
+      : 1;
 
     const gmUnlocked = Boolean(highestGmNft);
     const gmLevel = highestGmNft?.level ?? null;
@@ -719,6 +768,9 @@ async function main() {
         const updated = await repo.updateSubmission(claimed.id, {
           status: 'rejected',
           dify_raw: difyRaw as any,
+          points_base: 0,
+          points_multiplier: 1,
+          points_bonus_sources: [],
           points_total: 0,
           verified_at: new Date().toISOString()
         });
@@ -761,9 +813,9 @@ async function main() {
 
       const ok = retinfoIsAvaild === 'true' && timeThreshold === 'false';
       const { totalPoints: basePoints } = computeTotalPoints(payload.drinkList);
-      const bonusMultiplier =
+      const bonusSnapshot =
         ok && basePoints > 0
-          ? await getReceiptBonusMultiplier({
+          ? await getReceiptBonusSnapshot({
               repo,
               userId,
               wallet,
@@ -772,8 +824,9 @@ async function main() {
                 : { effectiveRoundId: config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID }),
               log: request.log
             })
-          : 1;
-      const totalPoints = ok ? applyPointsMultiplier(basePoints, bonusMultiplier) : 0;
+          : EMPTY_RECEIPT_BONUS_SNAPSHOT;
+      const earnedBasePoints = ok ? basePoints : 0;
+      const totalPoints = ok ? applyPointsMultiplier(earnedBasePoints, bonusSnapshot.multiplier) : 0;
 
       const finalStatus = ok ? (totalPoints > 0 ? 'verified' : 'not_claimable') : 'rejected';
       const receiptFingerprint =
@@ -793,6 +846,9 @@ async function main() {
           receipt_time_raw: receiptTimeRaw,
           retinfo_is_availd: retinfoIsAvaild,
           time_threshold: timeThreshold,
+          points_base: earnedBasePoints,
+          points_multiplier: bonusSnapshot.multiplier,
+          points_bonus_sources: bonusSnapshot.sources as any,
           points_total: totalPoints,
           receipt_fingerprint: finalStatus === 'verified' ? receiptFingerprint : null,
           rejection_code: null,
@@ -810,6 +866,9 @@ async function main() {
             receipt_time_raw: receiptTimeRaw,
             retinfo_is_availd: retinfoIsAvaild,
             time_threshold: timeThreshold,
+            points_base: 0,
+            points_multiplier: 1,
+            points_bonus_sources: [],
             points_total: 0,
             receipt_fingerprint: receiptFingerprint,
             rejection_code: 'duplicate_receipt',
@@ -819,6 +878,9 @@ async function main() {
         } else if (finalStatus === 'verified' && isDailyLimitError(err, 'daily_verified_limit_exceeded')) {
           await repo.updateSubmission(claimed.id, {
             status: 'uploaded',
+            points_base: 0,
+            points_multiplier: 1,
+            points_bonus_sources: [],
             points_total: 0,
             receipt_fingerprint: null,
             rejection_code: null,
@@ -850,6 +912,9 @@ async function main() {
           message: err instanceof Error ? err.message : String(err),
           at: new Date().toISOString()
         } as any,
+        points_base: 0,
+        points_multiplier: 1,
+        points_bonus_sources: [],
         points_total: 0,
         verified_at: new Date().toISOString()
       });

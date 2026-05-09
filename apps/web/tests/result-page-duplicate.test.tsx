@@ -35,6 +35,39 @@ vi.mock('../src/util/api', () => {
 });
 
 describe('ResultPage', () => {
+  it('shows the receipt points audit breakdown', async () => {
+    mocks.apiGet.mockResolvedValue({
+      submission: {
+        id: 'sub-1',
+        status: 'verified',
+        points_base: 12,
+        points_multiplier: 10,
+        points_bonus_sources: [{ type: 'gm_nft', multiplier: 10, level: 10, name: 'Galaxy' }],
+        points_total: 120,
+        dify_drink_list: [
+          {
+            retinfoDrinkName: 'Water',
+            retinfoDrinkCapacity: 500,
+            retinfoDrinkAmount: 1
+          }
+        ],
+        rejection_code: null,
+        duplicate_of: null,
+        created_at: new Date().toISOString()
+      }
+    });
+
+    render(<ResultPage />);
+
+    expect(await screen.findByText('TOTAL POINTS')).toBeInTheDocument();
+    expect(screen.getByText('BASE POINTS')).toBeInTheDocument();
+    expect(screen.getByText('12')).toBeInTheDocument();
+    expect(screen.getByText('MULTIPLIER')).toBeInTheDocument();
+    expect(screen.getByText('x10')).toBeInTheDocument();
+    expect(screen.getByText('Galaxy GM-NFT · x10')).toBeInTheDocument();
+    expect(screen.getByText('+120')).toBeInTheDocument();
+  });
+
   it('shows a dedicated message for duplicate receipts', async () => {
     mocks.apiGet.mockResolvedValue({
       submission: {
@@ -53,5 +86,26 @@ describe('ResultPage', () => {
     expect(await screen.findByText('RECEIPT ALREADY USED')).toBeInTheDocument();
     expect(screen.getByText('该小票已被使用，无法重复领取积分。')).toBeInTheDocument();
   });
-});
 
+  it('labels legacy points snapshots without inventing bonus sources', async () => {
+    mocks.apiGet.mockResolvedValue({
+      submission: {
+        id: 'sub-1',
+        status: 'verified',
+        points_base: 42,
+        points_multiplier: 1,
+        points_bonus_sources: [{ type: 'legacy_points_total', multiplier: 1 }],
+        points_total: 42,
+        dify_drink_list: null,
+        rejection_code: null,
+        duplicate_of: null,
+        created_at: new Date().toISOString()
+      }
+    });
+
+    render(<ResultPage />);
+
+    expect(await screen.findByText('Legacy receipt · final points only')).toBeInTheDocument();
+    expect(screen.getByText('+42')).toBeInTheDocument();
+  });
+});

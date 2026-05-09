@@ -3,7 +3,6 @@ import DashboardPage from './pages/DashboardPage';
 import AccountPage from './pages/AccountPage';
 import ScanPage from './pages/ScanPage';
 import ResultPage from './pages/ResultPage';
-import StakingPage from './pages/StakingPage';
 import RewardsPage from './pages/RewardsPage';
 import RequireLogin from './components/RequireLogin';
 
@@ -13,14 +12,6 @@ export default function App() {
       <Route path="/account" element={<AccountPage />} />
 
       <Route path="/" element={<DashboardPage />} />
-      <Route
-        path="/staking"
-        element={
-          <RequireLogin>
-            <StakingPage />
-          </RequireLogin>
-        }
-      />
       <Route
         path="/rewards"
         element={
