@@ -5,6 +5,7 @@ import Screen from '../components/Screen';
 import BottomTabBar from '../components/BottomTabBar';
 import BrandLogo from '../components/BrandLogo';
 import ClaimStatusPanel, { getClaimButtonLabel } from '../components/ClaimStatusPanel';
+import LanguageToggle from '../components/LanguageToggle';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
 
@@ -216,21 +217,24 @@ export default function DashboardPage() {
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <BrandLogo className="h-11 w-11 shadow-[0_10px_30px_rgba(1,227,92,0.18)]" alt="" />
-            <div className="min-w-0">
+            <div className="hidden min-w-0 min-[360px]:block">
               <div className="truncate text-lg font-semibold tracking-tight">BigBottle</div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (isLoading) return;
-              nav('/account');
-            }}
-            disabled={isLoading}
-            className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-white/70"
-          >
-            {isLoading ? t('common.loading') : isLoggedIn ? walletShort : t('common.connectWallet')}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <LanguageToggle />
+            <button
+              type="button"
+              onClick={() => {
+                if (isLoading) return;
+                nav('/account');
+              }}
+              disabled={isLoading}
+              className="whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-white/70"
+            >
+              {isLoading ? t('common.loading') : isLoggedIn ? walletShort : t('common.connectWallet')}
+            </button>
+          </div>
         </div>
 
         <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
