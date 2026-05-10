@@ -81,11 +81,11 @@ File: `apps/web/src/main.tsx`
 File: `apps/web/src/i18n.ts`
 - React i18next initialization for user-facing web copy.
 - Default language: English (`en`).
-- Supported languages: English (`en`) and Chinese (`zh`).
+- Supported languages: English (`en`), Simplified Chinese (`zh-Hans`), Traditional Chinese (`zh-Hant`), and Japanese (`ja`).
 - Language preference is stored in `localStorage` under `bigbottle.language` when available.
 
 File: `apps/web/src/app/components/LanguageToggle.tsx`
-- Shared language switch button.
+- Shared flag-based language switch button.
 - Currently exposed from the Account header.
 
 ### Routes
