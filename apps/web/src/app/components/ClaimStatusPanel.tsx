@@ -66,7 +66,7 @@ export default function ClaimStatusPanel({ claim, className }: ClaimStatusPanelP
   const { t } = useTranslation();
   const isConfirmed = claim.status === 'confirmed';
   const isFailed = claim.status === 'failed';
-  const message = claim.status === 'failed' && claim.failure_reason ? claim.failure_reason : t(statusMessageKey(claim));
+  const message = t(statusMessageKey(claim));
 
   return (
     <div className={clsx('border border-white/10', className)}>

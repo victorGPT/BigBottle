@@ -187,7 +187,7 @@ export default function RewardsPage() {
               <div className="text-4xl font-semibold tabular-nums">
                 {quote ? formatTokenAmount(quote.b3tr_amount, 6) : '—'}
               </div>
-              <div className="mt-1 text-[11px] tracking-[0.22em] text-emerald-300">B3TR</div>
+              <div className="mt-1 text-[11px] tracking-[0.22em] text-emerald-300">{t('common.token.b3tr')}</div>
             </div>
 
             <button
@@ -251,21 +251,18 @@ export default function RewardsPage() {
                         : t('rewards.status.pending')}
                 </div>
                 <div className="text-sm font-semibold text-emerald-300 tabular-nums">
-                  {formatTokenAmount(c.b3tr_amount, 6)} B3TR
+                  {formatTokenAmount(c.b3tr_amount, 6)} {t('common.token.b3tr')}
                 </div>
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px] text-white/50">
                 <div>{new Date(c.created_at).toLocaleString()}</div>
                 <div className="flex items-center gap-2">
-                  <div className="tabular-nums">{c.points_claimed} pts</div>
+                  <div className="tabular-nums">
+                    {t('rewards.pointsClaimed', { points: c.points_claimed.toLocaleString() })}
+                  </div>
                   {c.tx_hash && <div className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5">{shortHash(c.tx_hash)}</div>}
                 </div>
               </div>
-              {c.status === 'failed' && c.failure_reason && (
-                <div className="mt-2 text-[11px] text-red-200/80">
-                  {c.failure_reason}
-                </div>
-              )}
             </div>
           ))}
 

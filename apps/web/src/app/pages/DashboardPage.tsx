@@ -8,6 +8,7 @@ import ClaimStatusPanel, { getClaimButtonLabel } from '../components/ClaimStatus
 import LanguageToggle from '../components/LanguageToggle';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
+import { getSubmissionStatusLabel } from '../../util/localizedDisplay';
 
 type Submission = {
   id: string;
@@ -244,7 +245,7 @@ export default function DashboardPage() {
               <div className="text-5xl font-semibold tabular-nums">
                 {quote ? formatTokenAmount(quote.b3tr_amount) : '—'}
               </div>
-              <div className="text-[11px] tracking-[0.22em] text-emerald-300">B3TR</div>
+              <div className="text-[11px] tracking-[0.22em] text-emerald-300">{t('common.token.b3tr')}</div>
             </div>
 
             <button
@@ -306,7 +307,7 @@ export default function DashboardPage() {
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px] text-white/50">
                 <div>{new Date(s.created_at).toLocaleString()}</div>
-                <div className="uppercase tracking-widest">{s.status}</div>
+                <div className="tracking-widest">{getSubmissionStatusLabel(s.status, t)}</div>
               </div>
             </button>
           ))}

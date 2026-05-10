@@ -83,10 +83,26 @@ File: `apps/web/src/i18n.ts`
 - Default language: English (`en`).
 - Supported languages: English (`en`), Simplified Chinese (`zh-Hans`), Traditional Chinese (`zh-Hant`), and Japanese (`ja`).
 - Language preference is stored in `localStorage` under `bigbottle.language` when available.
+- Also owns localized frontend display labels for statuses, multiplier values, and GM-NFT level names.
+
+Files: `apps/web/src/i18n/locales/*.ts`
+- Locale resources are split by language.
+- `en.ts` is the source schema for required flat keys; non-English locale modules must satisfy that schema.
 
 File: `apps/web/src/app/components/LanguageToggle.tsx`
 - Shared compact flag language menu.
 - Exposed from the Dashboard header as the primary language setting entry and reused from the Account header. The Dashboard header keeps the language entry compact and hides the wordmark on very narrow screens to preserve action space.
+
+File: `apps/web/src/util/localizedDisplay.ts`
+- Shared frontend display helpers for locale-dependent numeric/status labels:
+  - `formatMultiplierValue(value, t): string`
+  - `getGmNftLevelName(level, t): string`
+  - `getSubmissionStatusLabel(status, t): string`
+
+File: `apps/web/scripts/check-i18n.mjs`
+- Runs through `pnpm -C apps/web i18n:check` and as part of `apps/web` build.
+- Checks locale key parity, interpolation variable parity, and hardcoded JSX text in `apps/web/src/app`.
+- The only allowed hardcoded brand literals in JSX are `BigBottle` and `Big Bottle`; other user-facing text must come from locale resources.
 
 ### Routes
 File: `apps/web/src/app/App.tsx`
@@ -135,6 +151,10 @@ Public exports:
 
 ### Wallet Login (VeChain Kit) and iOS Stability Workaround
 File: `apps/web/src/app/pages/AccountPage.tsx`
+
+Observable account behavior:
+- Loads `GET /account/summary` and `GET /account/achievements` after login.
+- Known achievement rows (`vebetter_vote_bonus`, `gm_nft`) use API fields for status, multiplier, and GM-NFT node level, but render user-facing titles/descriptions/tags/level names through `apps/web/src/i18n.ts` so the selected language controls the page copy.
 
 Login flow:
 1. Prefer VeWorld source (`setSource('veworld')`) when injected; otherwise keep Sync2/WalletConnect available.
@@ -223,6 +243,7 @@ Auth:
 
 Account:
 - `GET /account/summary` (auth) -> `{ summary: { points_total: number, level: null } }`
+- `GET /account/achievements` (auth) -> `{ achievements, summary }`; each achievement includes semantic `key`, `unlocked`, `multiplier`, optional round ids, and optional GM-NFT `node_name` / `node_level`. API-provided title/description/tag fields are fallback metadata; the web client localizes known achievement keys.
 
 Rewards (Phase 2):
 - `GET /rewards/quote` (auth) -> `{ quote: { points_total, points_locked, points_available, points_per_b3tr, conversion_rate_id, b3tr_amount_wei, b3tr_amount } }`

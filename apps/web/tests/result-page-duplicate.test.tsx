@@ -63,8 +63,8 @@ describe('ResultPage', () => {
     expect(screen.getByText('Base points')).toBeInTheDocument();
     expect(screen.getByText('12')).toBeInTheDocument();
     expect(screen.getByText('Multiplier')).toBeInTheDocument();
-    expect(screen.getByText('x10')).toBeInTheDocument();
-    expect(screen.getByText('Galaxy GM-NFT · x10')).toBeInTheDocument();
+    expect(screen.getByText('10x')).toBeInTheDocument();
+    expect(screen.getByText('GM-NFT node: Galaxy · 10x')).toBeInTheDocument();
     expect(screen.getByText('+120')).toBeInTheDocument();
   });
 

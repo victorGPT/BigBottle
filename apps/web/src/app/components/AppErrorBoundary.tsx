@@ -1,6 +1,7 @@
 import React from 'react';
 
 import Screen from './Screen';
+import i18n from '../../i18n';
 
 type Props = {
   children: React.ReactNode;
@@ -28,14 +29,14 @@ export default class AppErrorBoundary extends React.Component<Props, State> {
         <Screen>
           <div className="flex min-h-dvh items-center justify-center px-6">
             <div className="w-full max-w-[420px] rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-sm font-semibold">Something went wrong</div>
-              <div className="mt-2 break-words text-xs text-white/60">{this.state.error.message}</div>
+              <div className="text-sm font-semibold">{i18n.t('errorBoundary.title')}</div>
+              <div className="mt-2 break-words text-xs text-white/60">{i18n.t('errorBoundary.body')}</div>
               <button
                 type="button"
                 onClick={() => window.location.reload()}
                 className="mt-4 w-full rounded-2xl bg-white/10 py-3 text-xs font-semibold text-white transition active:scale-[0.99]"
               >
-                Reload
+                {i18n.t('errorBoundary.reload')}
               </button>
             </div>
           </div>
@@ -46,4 +47,3 @@ export default class AppErrorBoundary extends React.Component<Props, State> {
     return this.props.children;
   }
 }
-
