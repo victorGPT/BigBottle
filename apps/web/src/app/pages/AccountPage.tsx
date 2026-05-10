@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useDAppKitWallet } from '@vechain/vechain-kit';
 import { Progress } from '@base-ui/react/progress';
 import { Coins, LifeBuoy, Medal, ReceiptText } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import Screen from '../components/Screen';
 import BottomTabBar from '../components/BottomTabBar';
 import BrandLogo from '../components/BrandLogo';
+import LanguageToggle from '../components/LanguageToggle';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
 
@@ -57,6 +59,7 @@ type AccountAchievementsResponse = {
 
 export default function AccountPage() {
   const nav = useNavigate();
+  const { t } = useTranslation();
   const { state, setToken, logout } = useAuth();
   const { connect, setSource, account, source, requestTypedData } = useDAppKitWallet();
 
@@ -226,26 +229,29 @@ export default function AccountPage() {
       <div className={`mx-auto flex min-h-dvh max-w-[420px] flex-col px-5 pt-10 ${isLoggedIn ? 'pb-32' : 'pb-7'}`}>
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-xl font-semibold tracking-tight">Account</div>
-            <div className="mt-1 text-xs text-white/50">Manage your profile</div>
+            <div className="text-xl font-semibold tracking-tight">{t('common.account')}</div>
+            <div className="mt-1 text-xs text-white/50">{t('account.subtitle')}</div>
           </div>
-          <BrandLogo className="h-10 w-10 shadow-[0_10px_30px_rgba(1,227,92,0.16)]" />
+          <div className="flex items-center gap-2">
+            <LanguageToggle />
+            <BrandLogo className="h-10 w-10 shadow-[0_10px_30px_rgba(1,227,92,0.16)]" />
+          </div>
         </div>
 
         <div className="mt-6 rounded-2xl border border-[#1E3A1E] bg-[#0F1F0F]/60 p-4">
-          <div className="text-[10px] font-semibold tracking-[0.24em] text-white/40">TOTAL POINTS</div>
+          <div className="text-[10px] font-semibold tracking-[0.24em] text-white/40">{t('account.totalPoints')}</div>
           <div className="mt-2 flex items-baseline gap-2">
             <div className="text-4xl font-semibold tabular-nums">{pointsText}</div>
             <div className="text-[11px] font-semibold tracking-[0.22em] text-emerald-300">PTS</div>
           </div>
           <div className="mt-2 flex items-center justify-between text-[11px] text-white/45">
-            <div className="font-mono tracking-wider">LEVEL —</div>
-            <div className="text-white/35">Coming soon</div>
+            <div className="font-mono tracking-wider">{t('account.level')} —</div>
+            <div className="text-white/35">{t('account.comingSoon')}</div>
           </div>
           <Progress.Root
             value={null}
-            aria-label="Level progress"
-            aria-valuetext="Coming soon"
+            aria-label={t('account.levelProgress')}
+            aria-valuetext={t('account.comingSoon')}
             className="mt-3 w-full"
           >
             <Progress.Track className="h-2 w-full overflow-hidden rounded-full bg-white/10 ring-1 ring-white/10">
@@ -256,9 +262,9 @@ export default function AccountPage() {
 
         <div className="mt-4 grid grid-cols-3 gap-3">
           {[
-            { label: 'Receipts', icon: ReceiptText },
-            { label: 'Points', icon: Coins },
-            { label: 'Support', icon: LifeBuoy }
+            { label: t('common.receipts'), icon: ReceiptText },
+            { label: t('common.points'), icon: Coins },
+            { label: t('common.support'), icon: LifeBuoy }
           ].map((item) => (
             <div
               key={item.label}
@@ -275,8 +281,8 @@ export default function AccountPage() {
         <div className="mt-4 rounded-2xl border border-[#1E3A1E] bg-[#0F1F0F]/40 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm font-semibold tracking-tight text-white">Achievements</div>
-              <div className="mt-1 text-[11px] text-white/50">成就勋章与奖励系数</div>
+              <div className="text-sm font-semibold tracking-tight text-white">{t('account.achievements')}</div>
+              <div className="mt-1 text-[11px] text-white/50">{t('account.achievementsSubtitle')}</div>
             </div>
             <div className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
               x{totalMultiplierText}
@@ -288,7 +294,7 @@ export default function AccountPage() {
               {
                 key: 'vebetter_vote_bonus',
                 title: 'VeBetterDAO Voter',
-                description: '在 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。',
+                description: t('account.achievement.voterDescription'),
                 badge: 'governance',
                 unlocked: false,
                 multiplier: 1,
@@ -301,7 +307,7 @@ export default function AccountPage() {
               {
                 key: 'gm_nft',
                 title: 'GM-NFT',
-                description: '未检测到 GM-NFT。',
+                description: t('account.achievement.gmNftDescription'),
                 badge: 'gm_nft',
                 unlocked: false,
                 multiplier: 1,
@@ -323,11 +329,11 @@ export default function AccountPage() {
                       (typeof item.tag_label === 'string' && item.tag_label.trim())
                         ? item.tag_label.trim()
                         : item.key === 'vebetter_vote_bonus'
-                          ? '投票用户'
+                          ? t('account.tag.voter')
                           : item.key === 'gm_nft'
                             ? item.unlocked && item.node_name
                               ? `GM-NFT · ${item.node_name}`
-                              : 'GM-NFT'
+                              : t('account.tag.gmNft')
                             : item.title;
 
                     return (
@@ -370,7 +376,9 @@ export default function AccountPage() {
                       </div>
                       <div className="text-right">
                         <div className="text-[12px] font-semibold text-emerald-200">x{item.multiplier.toFixed(2)}</div>
-                        <div className="mt-0.5 text-[10px] text-white/50">{item.unlocked ? '已达成' : '未达成'}</div>
+                        <div className="mt-0.5 text-[10px] text-white/50">
+                          {item.unlocked ? t('account.achievement.unlocked') : t('account.achievement.locked')}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -395,7 +403,7 @@ export default function AccountPage() {
                 </div>
               )}
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-[10px] tracking-[0.24em] text-white/40">CONNECTED</div>
+                <div className="text-[10px] tracking-[0.24em] text-white/40">{t('account.connected')}</div>
                 <div className="mt-2 break-all text-xs text-white/70">{walletAddress}</div>
               </div>
 
@@ -407,14 +415,14 @@ export default function AccountPage() {
                 }}
                 className="mt-4 w-full rounded-2xl border border-white/15 bg-white/5 py-4 text-sm font-semibold text-white/80 transition active:scale-[0.99]"
               >
-                LOG OUT
+                {t('common.logOut')}
               </button>
             </>
           ) : (
             <>
-              <div className="text-center text-sm font-medium">登录以管理账户</div>
+              <div className="text-center text-sm font-medium">{t('account.loginTitle')}</div>
               <div className="mt-1 text-center text-xs text-white/55">
-                登录后可查看积分与等级、管理账户信息
+                {t('account.loginSubtitle')}
               </div>
 
               {error && (
@@ -429,11 +437,11 @@ export default function AccountPage() {
                 disabled={isBusy}
                 className="mt-5 w-full rounded-2xl bg-[#F59E0B] py-4 text-sm font-semibold text-black transition active:scale-[0.99] disabled:opacity-60"
               >
-                {isBusy ? '登录中...' : '立即登录'}
+                {isBusy ? t('common.loggingIn') : t('common.logIn')}
               </button>
 
               <div className="mt-3 text-center text-[11px] text-white/45">
-                支持 VeWorld、Sync2、WalletConnect 登录
+                {t('account.loginSupport')}
               </div>
             </>
           )}

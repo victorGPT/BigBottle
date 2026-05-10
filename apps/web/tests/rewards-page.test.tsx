@@ -117,11 +117,11 @@ describe('RewardsPage', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('CLAIMABLE')).toBeInTheDocument();
+    expect(await screen.findByText('Claimable')).toBeInTheDocument();
     expect(screen.getByText('1.5')).toBeInTheDocument();
-    expect(screen.getByText(/当前兑换率/)).toBeInTheDocument();
+    expect(screen.getByText(/Exchange rate/)).toBeInTheDocument();
 
-    const btn = screen.getByRole('button', { name: 'CLAIM' });
+    const btn = screen.getByRole('button', { name: 'Claim' });
     fireEvent.click(btn);
 
     await waitFor(() => {
@@ -162,7 +162,7 @@ describe('RewardsPage', () => {
       </MemoryRouter>
     );
 
-    const btn = await screen.findByRole('button', { name: 'CLAIM' });
+    const btn = await screen.findByRole('button', { name: 'Claim' });
 
     vi.useFakeTimers();
     await act(async () => {
@@ -171,8 +171,8 @@ describe('RewardsPage', () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByText('CLAIM STATUS')).toBeInTheDocument();
-    expect(screen.getByText('SUBMITTED')).toBeInTheDocument();
+    expect(screen.getByText('Claim status')).toBeInTheDocument();
+    expect(screen.getAllByText('Submitted').length).toBeGreaterThan(0);
 
     await act(async () => {
       vi.advanceTimersByTime(2000);
@@ -181,7 +181,7 @@ describe('RewardsPage', () => {
     });
 
     expect(mocks.apiGet).toHaveBeenCalledWith('/rewards/claims/claim-1', 'token');
-    expect(screen.getByRole('button', { name: 'CLAIMED' })).toBeDisabled();
-    expect(screen.getByText('Claimed，B3TR 已发送到你的钱包。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Claimed' })).toBeDisabled();
+    expect(screen.getByText('Claimed. B3TR has been sent to your wallet.')).toBeInTheDocument();
   });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Progress } from '@base-ui/react/progress';
+import { useTranslation } from 'react-i18next';
 import Screen from '../components/Screen';
 import { useAuth } from '../../state/auth';
 import { apiPost } from '../../util/api';
@@ -28,6 +29,7 @@ type InitResponse = {
 
 export default function ScanPage() {
   const nav = useNavigate();
+  const { t } = useTranslation();
   const { state } = useAuth();
   const token = state.status === 'logged_in' ? state.token : null;
 
@@ -142,19 +144,19 @@ export default function ScanPage() {
   const isBusy = phase === 'compressing' || phase === 'uploading' || phase === 'verifying';
   const statusText =
     phase === 'verifying'
-      ? 'AI DETECTING…'
+      ? t('scan.status.detecting')
       : phase === 'uploading'
-        ? 'UPLOADING…'
+        ? t('scan.status.uploading')
         : phase === 'compressing'
-          ? 'OPTIMIZING…'
-          : 'Ready';
+          ? t('scan.status.optimizing')
+          : t('scan.status.ready');
   const ariaValueText =
     phase === 'compressing'
-      ? 'Optimizing image'
+      ? t('scan.progress.optimizing')
       : phase === 'uploading'
-        ? 'Uploading image'
+        ? t('scan.progress.uploading')
         : phase === 'verifying'
-          ? 'AI detecting'
+          ? t('scan.progress.detecting')
           : undefined;
 
   return (
@@ -165,11 +167,11 @@ export default function ScanPage() {
             type="button"
             onClick={() => nav('/')}
             className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white/80"
-            aria-label="Back"
+            aria-label={t('common.back')}
           >
             ←
           </button>
-          <div className="text-xs font-semibold tracking-[0.22em] text-white/80">SCAN RECEIPT</div>
+          <div className="text-xs font-semibold tracking-[0.22em] text-white/80">{t('scan.title')}</div>
           <div className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-center leading-9 text-white/70">
             ⚡
           </div>
@@ -184,19 +186,19 @@ export default function ScanPage() {
             <div className="absolute right-8 bottom-8 h-5 w-5 border-b-2 border-r-2 border-emerald-200/70" />
 
             <div className="absolute bottom-10 left-0 right-0 text-center">
-              <div className="text-[10px] tracking-[0.22em] text-emerald-200/70">ALIGN RECEIPT</div>
+              <div className="text-[10px] tracking-[0.22em] text-emerald-200/70">{t('scan.alignReceipt')}</div>
               <div className="mt-2 flex items-center justify-center gap-2 text-[11px] text-white/50">
                 <span>{statusText}</span>
                 {isBusy && <span className="tabular-nums text-white/35">{Math.round(progressValue)}%</span>}
               </div>
               {phase === 'verifying' && (
-                <div className="mt-1 text-[11px] text-white/40">预计约 10 秒</div>
+                <div className="mt-1 text-[11px] text-white/40">{t('scan.estimate')}</div>
               )}
               {isBusy && (
                 <div className="mx-auto mt-3 w-[220px]">
                   <Progress.Root
                     value={progressValue}
-                    aria-label="Receipt processing progress"
+                    aria-label={t('scan.progress.label')}
                     aria-valuetext={ariaValueText}
                     className="w-full"
                   >
@@ -209,8 +211,8 @@ export default function ScanPage() {
             </div>
           </div>
 
-          <div className="mt-5 text-center text-[11px] text-white/55">SCANNING TIPS</div>
-          <div className="mt-2 text-center text-xs text-white/70">Keep receipt flat and visible</div>
+          <div className="mt-5 text-center text-[11px] text-white/55">{t('scan.tipsTitle')}</div>
+          <div className="mt-2 text-center text-xs text-white/70">{t('scan.tipsBody')}</div>
         </div>
 
         {error && (
@@ -234,7 +236,7 @@ export default function ScanPage() {
             disabled={isBusy}
             onClick={() => inputRef.current?.click()}
             className="relative h-20 w-20 rounded-full border border-emerald-200/40 bg-black/30 disabled:opacity-60"
-            aria-label="Capture receipt"
+            aria-label={t('scan.captureReceipt')}
           >
             <span className="absolute inset-3 rounded-full bg-emerald-300 shadow-[0_0_0_8px_rgba(16,185,129,0.10)]" />
             {isBusy && (

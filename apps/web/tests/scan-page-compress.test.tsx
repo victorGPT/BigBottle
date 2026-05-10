@@ -169,7 +169,7 @@ describe('ScanPage', () => {
 
     fireEvent.change(input, { target: { files: [original] } });
 
-    expect(await screen.findByText('OPTIMIZING…')).toBeInTheDocument();
+    expect(await screen.findByText('Optimizing...')).toBeInTheDocument();
 
     await waitFor(() => {
       expect(mocks.compressReceiptImage).toHaveBeenCalledTimes(1);

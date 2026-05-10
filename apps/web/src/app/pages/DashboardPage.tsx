@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import Screen from '../components/Screen';
 import BottomTabBar from '../components/BottomTabBar';
 import BrandLogo from '../components/BrandLogo';
@@ -49,6 +50,7 @@ function formatTokenAmount(amount: string, maxDecimals = 2): string {
 
 export default function DashboardPage() {
   const nav = useNavigate();
+  const { t } = useTranslation();
   const { state } = useAuth();
   const isLoading = state.status === 'loading';
   const isLoggedIn = state.status === 'logged_in';
@@ -68,7 +70,12 @@ export default function DashboardPage() {
     isClaiming,
     settledClaim,
     pointsAvailable: quote?.points_available ?? null,
-    claimingLabel: 'PROCESSING…'
+    claimingLabel: t('claim.action.processing'),
+    labels: {
+      claim: t('claim.action.claim'),
+      claimed: t('claim.action.claimed'),
+      processing: t('claim.action.processing')
+    }
   });
 
   useEffect(() => {
@@ -206,12 +213,11 @@ export default function DashboardPage() {
   return (
     <Screen>
       <div className="relative mx-auto min-h-dvh max-w-[420px] px-5 pb-32 pt-10">
-        <div className="flex items-start justify-between">
-          <div className="flex min-w-0 items-center gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <BrandLogo className="h-11 w-11 shadow-[0_10px_30px_rgba(1,227,92,0.18)]" alt="" />
             <div className="min-w-0">
-              <div className="text-lg font-semibold tracking-tight">BigBottle</div>
-              <div className="mt-1 text-[11px] text-white/50">B3TR Receipt MVP (Phase 1)</div>
+              <div className="truncate text-lg font-semibold tracking-tight">BigBottle</div>
             </div>
           </div>
           <button
@@ -221,14 +227,14 @@ export default function DashboardPage() {
               nav('/account');
             }}
             disabled={isLoading}
-            className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-white/70"
+            className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-white/70"
           >
-            {isLoading ? 'Loading' : isLoggedIn ? walletShort : 'Connect Wallet'}
+            {isLoading ? t('common.loading') : isLoggedIn ? walletShort : t('common.connectWallet')}
           </button>
         </div>
 
         <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
-          <div className="text-[10px] tracking-[0.24em] text-white/40">CLAIMABLE</div>
+          <div className="text-[10px] tracking-[0.24em] text-white/40">{t('dashboard.claimable')}</div>
           <div className="mt-2 flex items-baseline justify-between">
             <div className="flex items-baseline gap-2">
               <div className="text-5xl font-semibold tabular-nums">
@@ -248,7 +254,7 @@ export default function DashboardPage() {
           </div>
           {quote && quote.points_available > 0 && (
             <div className="mt-2 text-[11px] text-white/45">
-              Available: {quote.points_available.toLocaleString()} points
+              {t('claim.availablePoints', { points: quote.points_available.toLocaleString() })}
             </div>
           )}
 
@@ -257,24 +263,21 @@ export default function DashboardPage() {
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="text-[10px] tracking-[0.22em] text-white/40">TOTAL SCANS</div>
+            <div className="text-[10px] tracking-[0.22em] text-white/40">{t('dashboard.totalScans')}</div>
             <div className="mt-2 text-2xl font-semibold tabular-nums">{stats.totalScans}</div>
-            <div className="mt-1 text-[11px] text-white/45">Receipts</div>
+            <div className="mt-1 text-[11px] text-white/45">{t('common.receipts')}</div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="text-[10px] tracking-[0.22em] text-white/40">POINTS TODAY</div>
+            <div className="text-[10px] tracking-[0.22em] text-white/40">{t('dashboard.pointsToday')}</div>
             <div className="mt-2 text-2xl font-semibold tabular-nums text-emerald-300">
               +{stats.pointsToday}
             </div>
-            <div className="mt-1 text-[11px] text-white/45">From bottles</div>
+            <div className="mt-1 text-[11px] text-white/45">{t('dashboard.fromBottles')}</div>
           </div>
         </div>
 
         <div className="mt-6 flex items-center justify-between">
-          <div className="text-[10px] tracking-[0.22em] text-white/40">RECENT ACTIVITY</div>
-          <button type="button" className="text-xs text-emerald-300/80">
-            View all
-          </button>
+          <div className="text-[10px] tracking-[0.22em] text-white/40">{t('dashboard.recentActivity')}</div>
         </div>
 
         {error && (
@@ -292,7 +295,7 @@ export default function DashboardPage() {
               className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left transition active:scale-[0.99]"
             >
               <div className="flex items-center justify-between">
-                <div className="text-sm font-medium">Receipt</div>
+                <div className="text-sm font-medium">{t('dashboard.receipt')}</div>
                 <div className="text-sm font-semibold text-emerald-300 tabular-nums">
                   +{s.points_total ?? 0}
                 </div>
@@ -306,7 +309,7 @@ export default function DashboardPage() {
 
           {submissions.length === 0 && (
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-center text-sm text-white/60">
-              还没有扫描记录
+              {t('dashboard.emptyScans')}
             </div>
           )}
         </div>
@@ -319,9 +322,9 @@ export default function DashboardPage() {
                 onClick={() => nav('/account')}
                 className="w-full rounded-2xl bg-emerald-300 py-4 text-sm font-semibold text-black shadow-[0_10px_40px_rgba(16,185,129,0.18)] transition active:scale-[0.99]"
               >
-                CONNECT WALLET
+                {t('common.connectWallet')}
               </button>
-              <div className="mt-2 text-center text-xs text-white/55">登录后才能扫描小票并领取积分</div>
+              <div className="mt-2 text-center text-xs text-white/55">{t('dashboard.loginRequired')}</div>
             </div>
           </div>
         )}
