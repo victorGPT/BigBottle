@@ -245,7 +245,7 @@ export default function DashboardPage() {
               <div className="text-5xl font-semibold tabular-nums">
                 {quote ? formatTokenAmount(quote.b3tr_amount) : '—'}
               </div>
-              <div className="text-[11px] tracking-[0.22em] text-emerald-300">B3TR</div>
+              <div className="text-[11px] tracking-[0.22em] text-emerald-300">{t('common.token.b3tr')}</div>
             </div>
 
             <button

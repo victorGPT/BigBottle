@@ -291,7 +291,7 @@ export default function ResultPage() {
                     </div>
                   </div>
                   <div className="rounded-lg bg-emerald-300 px-2 py-1 text-xs font-semibold text-black">
-                    x{amt ?? '1'}
+                    {t('result.itemQuantity', { amount: amt ?? '1' })}
                   </div>
                 </div>
               );

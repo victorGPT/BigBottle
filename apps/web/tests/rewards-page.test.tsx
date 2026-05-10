@@ -117,8 +117,8 @@ describe('RewardsPage', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('Claimable')).toBeInTheDocument();
-    expect(screen.getByText('1.5')).toBeInTheDocument();
+    expect(screen.getByText('Claimable')).toBeInTheDocument();
+    expect(await screen.findByText('1.5')).toBeInTheDocument();
     expect(screen.getByText(/Exchange rate/)).toBeInTheDocument();
 
     const btn = screen.getByRole('button', { name: 'Claim' });

@@ -85,6 +85,10 @@ File: `apps/web/src/i18n.ts`
 - Language preference is stored in `localStorage` under `bigbottle.language` when available.
 - Also owns localized frontend display labels for statuses, multiplier values, and GM-NFT level names.
 
+Files: `apps/web/src/i18n/locales/*.ts`
+- Locale resources are split by language.
+- `en.ts` is the source schema for required flat keys; non-English locale modules must satisfy that schema.
+
 File: `apps/web/src/app/components/LanguageToggle.tsx`
 - Shared compact flag language menu.
 - Exposed from the Dashboard header as the primary language setting entry and reused from the Account header. The Dashboard header keeps the language entry compact and hides the wordmark on very narrow screens to preserve action space.
@@ -94,6 +98,11 @@ File: `apps/web/src/util/localizedDisplay.ts`
   - `formatMultiplierValue(value, t): string`
   - `getGmNftLevelName(level, t): string`
   - `getSubmissionStatusLabel(status, t): string`
+
+File: `apps/web/scripts/check-i18n.mjs`
+- Runs through `pnpm -C apps/web i18n:check` and as part of `apps/web` build.
+- Checks locale key parity, interpolation variable parity, and hardcoded JSX text in `apps/web/src/app`.
+- The only allowed hardcoded brand literals in JSX are `BigBottle` and `Big Bottle`; other user-facing text must come from locale resources.
 
 ### Routes
 File: `apps/web/src/app/App.tsx`
