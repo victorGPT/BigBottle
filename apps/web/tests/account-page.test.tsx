@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import AccountPage from '../src/app/pages/AccountPage';
+import i18n from '../src/i18n';
 
 const mocks = vi.hoisted(() => {
   return {
@@ -11,7 +13,13 @@ const mocks = vi.hoisted(() => {
     apiPost: vi.fn(),
     connect: vi.fn(),
     setSource: vi.fn(),
-    requestTypedData: vi.fn()
+    requestTypedData: vi.fn(),
+    logout: vi.fn(),
+    authState: {
+      status: 'anonymous',
+      token: null,
+      user: null
+    } as unknown
   };
 });
 
@@ -26,8 +34,9 @@ vi.mock('react-router-dom', async () => {
 vi.mock('../src/state/auth', () => {
   return {
     useAuth: () => ({
-      state: { status: 'anonymous', token: null, user: null },
-      setToken: mocks.setToken
+      state: mocks.authState,
+      setToken: mocks.setToken,
+      logout: mocks.logout
     })
   };
 });
@@ -61,6 +70,8 @@ describe('AccountPage', () => {
     mocks.connect.mockReset();
     mocks.setSource.mockReset();
     mocks.requestTypedData.mockReset();
+    mocks.logout.mockReset();
+    mocks.authState = { status: 'anonymous', token: null, user: null };
     mocks.apiGet.mockResolvedValue({
       user: {
         id: 'user',
@@ -76,6 +87,86 @@ describe('AccountPage', () => {
   afterEach(() => {
     vi.useRealTimers();
     delete (window as any).vechain;
+    void i18n.changeLanguage('en');
+  });
+
+  it('localizes known achievement copy instead of rendering API-provided Chinese copy', async () => {
+    mocks.authState = {
+      status: 'logged_in',
+      token: 'token',
+      user: {
+        id: 'user',
+        wallet_address: '0x0000000000000000000000000000000000000001',
+        created_at: 'now'
+      }
+    };
+
+    await i18n.changeLanguage('en');
+    vi.useRealTimers();
+
+    mocks.apiGet.mockImplementation((path: unknown) => {
+      if (path === '/account/summary') {
+        return Promise.resolve({ summary: { points_total: 120, level: null } });
+      }
+
+      if (path === '/account/achievements') {
+        return Promise.resolve({
+          achievements: [
+            {
+              key: 'vebetter_vote_bonus',
+              title: '投票用户',
+              description: '参与 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。',
+              badge: 'governance',
+              tag_label: '投票用户',
+              unlocked: true,
+              multiplier: 1.2,
+              status: 'unlocked',
+              effective_round_id: 7,
+              source_round_id: 6,
+              node_name: null,
+              node_level: null
+            },
+            {
+              key: 'gm_nft',
+              title: 'GM-NFT',
+              description: '已持有最高等级 GM-NFT：Moon',
+              badge: 'gm_nft',
+              tag_label: 'GM-NFT',
+              unlocked: true,
+              multiplier: 1.3,
+              status: 'unlocked',
+              effective_round_id: null,
+              source_round_id: null,
+              node_name: 'Moon',
+              node_level: 5
+            }
+          ],
+          summary: {
+            unlocked_count: 2,
+            total_count: 2,
+            total_multiplier: 1.56
+          }
+        });
+      }
+
+      throw new Error(`Unexpected apiGet path: ${String(path)}`);
+    });
+
+    render(
+      <MemoryRouter>
+        <AccountPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('VeBetterDAO Voter')).toBeInTheDocument();
+    expect(screen.getByText('Vote in VeBetterDAO to unlock a BigPortal points multiplier next round.')).toBeInTheDocument();
+    expect(screen.getByText('Highest GM-NFT detected: Moon.')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.queryByText('投票用户')).not.toBeInTheDocument();
+      expect(screen.queryByText('参与 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。')).not.toBeInTheDocument();
+      expect(screen.queryByText('已持有最高等级 GM-NFT：Moon')).not.toBeInTheDocument();
+    });
   });
 
   it('waits after connect and signs typed data with explicit signer', async () => {

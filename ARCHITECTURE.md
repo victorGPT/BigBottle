@@ -136,6 +136,10 @@ Public exports:
 ### Wallet Login (VeChain Kit) and iOS Stability Workaround
 File: `apps/web/src/app/pages/AccountPage.tsx`
 
+Observable account behavior:
+- Loads `GET /account/summary` and `GET /account/achievements` after login.
+- Known achievement rows (`vebetter_vote_bonus`, `gm_nft`) use API fields for status, multiplier, and dynamic GM-NFT node data, but render user-facing titles/descriptions/tags through `apps/web/src/i18n.ts` so the selected language controls the page copy.
+
 Login flow:
 1. Prefer VeWorld source (`setSource('veworld')`) when injected; otherwise keep Sync2/WalletConnect available.
 2. `connect()` via `useDAppKitWallet` from `@vechain/vechain-kit`.
@@ -223,6 +227,7 @@ Auth:
 
 Account:
 - `GET /account/summary` (auth) -> `{ summary: { points_total: number, level: null } }`
+- `GET /account/achievements` (auth) -> `{ achievements, summary }`; each achievement includes semantic `key`, `unlocked`, `multiplier`, optional round ids, and optional GM-NFT `node_name` / `node_level`. API-provided title/description/tag fields are fallback metadata; the web client localizes known achievement keys.
 
 Rewards (Phase 2):
 - `GET /rewards/quote` (auth) -> `{ quote: { points_total, points_locked, points_available, points_per_b3tr, conversion_rate_id, b3tr_amount_wei, b3tr_amount } }`

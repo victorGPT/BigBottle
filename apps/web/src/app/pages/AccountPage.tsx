@@ -224,6 +224,38 @@ export default function AccountPage() {
 
   const totalMultiplierText = (achievementsSummary?.total_multiplier ?? 1).toFixed(2);
 
+  const getAchievementCopy = (item: AccountAchievement) => {
+    if (item.key === 'vebetter_vote_bonus') {
+      return {
+        title: t('account.achievement.voterTitle'),
+        description: t('account.achievement.voterDescription'),
+        tagLabel: t('account.tag.voter')
+      };
+    }
+
+    if (item.key === 'gm_nft') {
+      const nodeName = typeof item.node_name === 'string' && item.node_name.trim()
+        ? item.node_name.trim()
+        : null;
+
+      return {
+        title: t('account.achievement.gmNftTitle'),
+        description: item.unlocked && nodeName
+          ? t('account.achievement.gmNftUnlockedDescription', { name: nodeName })
+          : t('account.achievement.gmNftDescription'),
+        tagLabel: item.unlocked && nodeName
+          ? t('account.tag.gmNftUnlocked', { name: nodeName })
+          : t('account.tag.gmNft')
+      };
+    }
+
+    return {
+      title: item.title,
+      description: item.description,
+      tagLabel: (typeof item.tag_label === 'string' && item.tag_label.trim()) ? item.tag_label.trim() : item.title
+    };
+  };
+
   return (
     <Screen>
       <div className={`mx-auto flex min-h-dvh max-w-[420px] flex-col px-5 pt-10 ${isLoggedIn ? 'pb-32' : 'pb-7'}`}>
@@ -293,7 +325,7 @@ export default function AccountPage() {
             const fallbackAchievements: AccountAchievement[] = [
               {
                 key: 'vebetter_vote_bonus',
-                title: 'VeBetterDAO Voter',
+                title: t('account.achievement.voterTitle'),
                 description: t('account.achievement.voterDescription'),
                 badge: 'governance',
                 unlocked: false,
@@ -306,7 +338,7 @@ export default function AccountPage() {
               },
               {
                 key: 'gm_nft',
-                title: 'GM-NFT',
+                title: t('account.achievement.gmNftTitle'),
                 description: t('account.achievement.gmNftDescription'),
                 badge: 'gm_nft',
                 unlocked: false,
@@ -325,16 +357,7 @@ export default function AccountPage() {
               <>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {displayAchievements.map((item) => {
-                    const label =
-                      (typeof item.tag_label === 'string' && item.tag_label.trim())
-                        ? item.tag_label.trim()
-                        : item.key === 'vebetter_vote_bonus'
-                          ? t('account.tag.voter')
-                          : item.key === 'gm_nft'
-                            ? item.unlocked && item.node_name
-                              ? `GM-NFT · ${item.node_name}`
-                              : t('account.tag.gmNft')
-                            : item.title;
+                    const { tagLabel } = getAchievementCopy(item);
 
                     return (
                       <div
@@ -345,43 +368,47 @@ export default function AccountPage() {
                             : 'border-white/15 bg-white/5 text-white/60'
                         }`}
                       >
-                        {label}
+                        {tagLabel}
                       </div>
                     );
                   })}
                 </div>
 
                 <div className="mt-3 space-y-2">
-                  {displayAchievements.map((item) => (
-                    <div
-                      key={item.key}
-                      className={`flex items-center gap-3 rounded-xl border px-3 py-3 ${
-                        item.unlocked
-                          ? 'border-amber-300/30 bg-amber-200/10'
-                          : 'border-white/10 bg-white/5'
-                      }`}
-                    >
+                  {displayAchievements.map((item) => {
+                    const copy = getAchievementCopy(item);
+
+                    return (
                       <div
-                        className={`flex h-9 w-9 items-center justify-center rounded-full border ${
+                        key={item.key}
+                        className={`flex items-center gap-3 rounded-xl border px-3 py-3 ${
                           item.unlocked
-                            ? 'border-amber-300/50 bg-amber-200/20 text-amber-100'
-                            : 'border-white/15 bg-white/10 text-white/60'
+                            ? 'border-amber-300/30 bg-amber-200/10'
+                            : 'border-white/10 bg-white/5'
                         }`}
                       >
-                        <Medal size={16} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[12px] font-semibold text-white/90">{item.title}</div>
-                        <div className="mt-0.5 text-[11px] text-white/55">{item.description}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-[12px] font-semibold text-emerald-200">x{item.multiplier.toFixed(2)}</div>
-                        <div className="mt-0.5 text-[10px] text-white/50">
-                          {item.unlocked ? t('account.achievement.unlocked') : t('account.achievement.locked')}
+                        <div
+                          className={`flex h-9 w-9 items-center justify-center rounded-full border ${
+                            item.unlocked
+                              ? 'border-amber-300/50 bg-amber-200/20 text-amber-100'
+                              : 'border-white/15 bg-white/10 text-white/60'
+                          }`}
+                        >
+                          <Medal size={16} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[12px] font-semibold text-white/90">{copy.title}</div>
+                          <div className="mt-0.5 text-[11px] text-white/55">{copy.description}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[12px] font-semibold text-emerald-200">x{item.multiplier.toFixed(2)}</div>
+                          <div className="mt-0.5 text-[10px] text-white/50">
+                            {item.unlocked ? t('account.achievement.unlocked') : t('account.achievement.locked')}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             );
