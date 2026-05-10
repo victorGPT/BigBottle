@@ -500,16 +500,24 @@ const resources = {
 
 function getStoredLanguage(): SupportedLanguage {
   if (typeof window === 'undefined') return 'en';
-  if (typeof window.localStorage?.getItem !== 'function') return 'en';
-  const stored = window.localStorage.getItem('bigbottle.language');
-  if (stored === 'zh') return 'zh-Hans';
-  return supportedLanguages.includes(stored as SupportedLanguage) ? (stored as SupportedLanguage) : 'en';
+  try {
+    if (typeof window.localStorage?.getItem !== 'function') return 'en';
+    const stored = window.localStorage.getItem('bigbottle.language');
+    if (stored === 'zh') return 'zh-Hans';
+    return supportedLanguages.includes(stored as SupportedLanguage) ? (stored as SupportedLanguage) : 'en';
+  } catch {
+    return 'en';
+  }
 }
 
 function setStoredLanguage(language: string) {
   if (typeof window === 'undefined') return;
-  if (typeof window.localStorage?.setItem !== 'function') return;
-  window.localStorage.setItem('bigbottle.language', language);
+  try {
+    if (typeof window.localStorage?.setItem !== 'function') return;
+    window.localStorage.setItem('bigbottle.language', language);
+  } catch {
+    // ignore
+  }
 }
 
 i18n.use(initReactI18next).init({
