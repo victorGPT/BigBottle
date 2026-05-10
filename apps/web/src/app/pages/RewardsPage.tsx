@@ -2,6 +2,7 @@ import Screen from '../components/Screen';
 import BottomTabBar from '../components/BottomTabBar';
 import ClaimStatusPanel, { getClaimButtonLabel } from '../components/ClaimStatusPanel';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
 
@@ -45,6 +46,7 @@ function shortHash(hash: string): string {
 }
 
 export default function RewardsPage() {
+  const { t } = useTranslation();
   const { state } = useAuth();
   const token = state.status === 'logged_in' ? state.token : null;
 
@@ -61,7 +63,12 @@ export default function RewardsPage() {
     isClaiming,
     settledClaim,
     pointsAvailable: quote?.points_available ?? null,
-    claimingLabel: 'CLAIMING…'
+    claimingLabel: t('claim.action.claiming'),
+    labels: {
+      claim: t('claim.action.claim'),
+      claimed: t('claim.action.claimed'),
+      processing: t('claim.action.processing')
+    }
   });
 
   async function refreshAll() {
@@ -164,8 +171,8 @@ export default function RewardsPage() {
   return (
     <Screen>
       <div className="mx-auto min-h-dvh max-w-[420px] px-5 pb-32 pt-10">
-        <div className="text-lg font-semibold tracking-tight">Rewards</div>
-        <div className="mt-1 text-[11px] text-white/50">Phase 2: Points to B3TR (Gasless Claim)</div>
+        <div className="text-lg font-semibold tracking-tight">{t('common.rewards')}</div>
+        <div className="mt-1 text-[11px] text-white/50">{t('rewards.subtitle')}</div>
 
         {error && (
           <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-200">
@@ -174,7 +181,7 @@ export default function RewardsPage() {
         )}
 
         <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-5">
-          <div className="text-[10px] tracking-[0.24em] text-white/40">CLAIMABLE</div>
+          <div className="text-[10px] tracking-[0.24em] text-white/40">{t('dashboard.claimable')}</div>
           <div className="mt-2 flex items-baseline justify-between">
             <div>
               <div className="text-4xl font-semibold tabular-nums">
@@ -195,38 +202,38 @@ export default function RewardsPage() {
 
           <div className="mt-4 grid grid-cols-3 gap-3">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-              <div className="text-[10px] tracking-[0.22em] text-white/40">TOTAL</div>
+              <div className="text-[10px] tracking-[0.22em] text-white/40">{t('rewards.total')}</div>
               <div className="mt-2 text-lg font-semibold tabular-nums">{quote ? quote.points_total : '—'}</div>
-              <div className="mt-1 text-[11px] text-white/45">Points</div>
+              <div className="mt-1 text-[11px] text-white/45">{t('common.points')}</div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-              <div className="text-[10px] tracking-[0.22em] text-white/40">LOCKED</div>
+              <div className="text-[10px] tracking-[0.22em] text-white/40">{t('rewards.locked')}</div>
               <div className="mt-2 text-lg font-semibold tabular-nums">{quote ? quote.points_locked : '—'}</div>
-              <div className="mt-1 text-[11px] text-white/45">In claims</div>
+              <div className="mt-1 text-[11px] text-white/45">{t('rewards.inClaims')}</div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-              <div className="text-[10px] tracking-[0.22em] text-white/40">AVAILABLE</div>
+              <div className="text-[10px] tracking-[0.22em] text-white/40">{t('rewards.available')}</div>
               <div className="mt-2 text-lg font-semibold tabular-nums text-emerald-300">
                 {quote ? quote.points_available : '—'}
               </div>
-              <div className="mt-1 text-[11px] text-white/45">To claim</div>
+              <div className="mt-1 text-[11px] text-white/45">{t('rewards.toClaim')}</div>
             </div>
           </div>
 
           <div className="mt-4 text-xs text-white/55">
-            当前兑换率：<span className="text-white/80">{quote ? quote.points_per_b3tr : '—'}</span> 积分 = 1 B3TR
+            {t('rewards.exchangeRate', { points: quote ? quote.points_per_b3tr : '—' })}
           </div>
           <div className="mt-1 text-[11px] text-white/45">
-            领取过程由系统代付 Gas 费，你无需支付任何手续费。
+            {t('rewards.gasCovered')}
           </div>
         </div>
 
         {claimStatus && <ClaimStatusPanel claim={claimStatus} className="mt-4 rounded-3xl bg-white/5 p-5" />}
 
         <div className="mt-6 flex items-center justify-between">
-          <div className="text-[10px] tracking-[0.22em] text-white/40">CLAIM HISTORY</div>
+          <div className="text-[10px] tracking-[0.22em] text-white/40">{t('rewards.claimHistory')}</div>
           <button type="button" onClick={refreshAll} className="text-xs text-emerald-300/80">
-            Refresh
+            {t('common.refresh')}
           </button>
         </div>
 
@@ -236,12 +243,12 @@ export default function RewardsPage() {
               <div className="flex items-center justify-between">
                 <div className="text-sm font-medium">
                   {c.status === 'confirmed'
-                    ? 'Confirmed'
+                    ? t('rewards.status.confirmed')
                     : c.status === 'failed'
-                      ? 'Failed'
+                      ? t('rewards.status.failed')
                       : c.status === 'submitted'
-                        ? 'Submitted'
-                        : 'Pending'}
+                        ? t('rewards.status.submitted')
+                        : t('rewards.status.pending')}
                 </div>
                 <div className="text-sm font-semibold text-emerald-300 tabular-nums">
                   {formatTokenAmount(c.b3tr_amount, 6)} B3TR
@@ -264,7 +271,7 @@ export default function RewardsPage() {
 
           {claims.length === 0 && (
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-center text-sm text-white/60">
-              还没有领取记录
+              {t('rewards.emptyClaims')}
             </div>
           )}
         </div>

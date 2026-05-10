@@ -111,7 +111,7 @@ describe('AccountPage', () => {
 
     render(<AccountPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: '立即登录' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
 
     // connect() runs immediately, but the typed-data signing must not start until the post-connect delay elapses.
     expect(mocks.connect).toHaveBeenCalledTimes(1);
@@ -185,7 +185,7 @@ describe('AccountPage', () => {
 
     render(<AccountPage />);
 
-    fireEvent.click(screen.getAllByRole('button', { name: '立即登录' })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Log in' })[0]!);
 
     await vi.advanceTimersByTimeAsync(450);
     await Promise.resolve();

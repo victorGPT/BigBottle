@@ -70,11 +70,23 @@ Generated artifacts (directory-level only):
 ### Entrypoints and Providers
 File: `apps/web/src/main.tsx`
 - React root render
+- Initializes `apps/web/src/i18n.ts` before rendering.
 - Providers:
   - `VeChainKitProvider` (wallet bridge with `dappKit.allowedWallets = ['veworld', 'sync2', 'wallet-connect']`)
   - `AuthProvider` (token storage + `/me` validation)
   - `BrowserRouter`
   - `AppErrorBoundary`
+
+### Internationalization
+File: `apps/web/src/i18n.ts`
+- React i18next initialization for user-facing web copy.
+- Default language: English (`en`).
+- Supported languages: English (`en`) and Chinese (`zh`).
+- Language preference is stored in `localStorage` under `bigbottle.language` when available.
+
+File: `apps/web/src/app/components/LanguageToggle.tsx`
+- Shared language switch button.
+- Currently exposed from the Account header.
 
 ### Routes
 File: `apps/web/src/app/App.tsx`
@@ -101,7 +113,7 @@ File: `apps/web/src/app/components/ClaimStatusPanel.tsx`
 
 Public exports:
 - `ClaimStatusSnapshot`
-- `getClaimButtonLabel(input): string`
+- `getClaimButtonLabel(input): string` accepts optional localized `labels` for claim / claimed / processing states.
 - `ClaimStatusPanel(props): JSX.Element`
 
 ### Backend API Base URL

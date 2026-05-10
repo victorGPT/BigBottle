@@ -9,6 +9,7 @@ import AppErrorBoundary from './app/components/AppErrorBoundary';
 import { veChainNetwork } from './config/vechainNetwork';
 import { AuthProvider } from './state/auth';
 
+import './i18n';
 import './style.css';
 
 ReactDOM.createRoot(document.getElementById('app')!).render(

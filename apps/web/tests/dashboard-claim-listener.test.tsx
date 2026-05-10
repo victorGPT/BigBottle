@@ -121,7 +121,7 @@ describe('DashboardPage claim listener', () => {
       </MemoryRouter>
     );
 
-    const button = await screen.findByRole('button', { name: 'CLAIM' });
+    const button = await screen.findByRole('button', { name: 'Claim' });
 
     vi.useFakeTimers();
     await act(async () => {
@@ -135,7 +135,7 @@ describe('DashboardPage claim listener', () => {
       { client_claim_id: '11111111-1111-1111-1111-111111111111' },
       'token'
     );
-    expect(screen.getByText('CLAIM STATUS')).toBeInTheDocument();
+    expect(screen.getByText('Claim status')).toBeInTheDocument();
 
     await act(async () => {
       vi.advanceTimersByTime(2000);
@@ -144,7 +144,7 @@ describe('DashboardPage claim listener', () => {
     });
 
     expect(mocks.apiGet).toHaveBeenCalledWith('/rewards/claims/claim-1', 'token');
-    expect(screen.getByRole('button', { name: 'CLAIMED' })).toBeDisabled();
-    expect(screen.getByText('Claimed，B3TR 已发送到你的钱包。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Claimed' })).toBeDisabled();
+    expect(screen.getByText('Claimed. B3TR has been sent to your wallet.')).toBeInTheDocument();
   });
 });

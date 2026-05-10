@@ -59,10 +59,10 @@ describe('ResultPage', () => {
 
     render(<ResultPage />);
 
-    expect(await screen.findByText('TOTAL POINTS')).toBeInTheDocument();
-    expect(screen.getByText('BASE POINTS')).toBeInTheDocument();
+    expect(await screen.findByText('Total points')).toBeInTheDocument();
+    expect(screen.getByText('Base points')).toBeInTheDocument();
     expect(screen.getByText('12')).toBeInTheDocument();
-    expect(screen.getByText('MULTIPLIER')).toBeInTheDocument();
+    expect(screen.getByText('Multiplier')).toBeInTheDocument();
     expect(screen.getByText('x10')).toBeInTheDocument();
     expect(screen.getByText('Galaxy GM-NFT · x10')).toBeInTheDocument();
     expect(screen.getByText('+120')).toBeInTheDocument();
@@ -83,8 +83,8 @@ describe('ResultPage', () => {
 
     render(<ResultPage />);
 
-    expect(await screen.findByText('RECEIPT ALREADY USED')).toBeInTheDocument();
-    expect(screen.getByText('该小票已被使用，无法重复领取积分。')).toBeInTheDocument();
+    expect(await screen.findByText('Receipt already used')).toBeInTheDocument();
+    expect(screen.getByText('This receipt has already been used and cannot earn rewards again.')).toBeInTheDocument();
   });
 
   it('labels legacy points snapshots without inventing bonus sources', async () => {

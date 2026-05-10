@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import Screen from '../components/Screen';
 import { useAuth } from '../../state/auth';
 import { apiGet } from '../../util/api';
@@ -36,20 +37,23 @@ function formatMultiplier(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 }
 
-function bonusSourceLabel(source: { type?: unknown; multiplier?: unknown; name?: unknown; level?: unknown }): string {
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+function bonusSourceLabel(source: { type?: unknown; multiplier?: unknown; name?: unknown; level?: unknown }, t: Translate): string {
   const multiplier = formatMultiplier(toDisplayNumber(source.multiplier, 1));
   if (source.type === 'gm_nft') {
     const name = typeof source.name === 'string' && source.name ? source.name : 'GM-NFT';
-    return `${name} GM-NFT · x${multiplier}`;
+    return t('result.bonus.gmNft', { name, multiplier });
   }
-  if (source.type === 'vebetter_vote_bonus') return `VeBetterDAO Voter · x${multiplier}`;
-  if (source.type === 'legacy_points_total') return 'Legacy receipt · final points only';
-  return `Bonus · x${multiplier}`;
+  if (source.type === 'vebetter_vote_bonus') return t('result.bonus.voter', { multiplier });
+  if (source.type === 'legacy_points_total') return t('result.bonus.legacy');
+  return t('result.bonus.generic', { multiplier });
 }
 
 export default function ResultPage() {
   const nav = useNavigate();
   const params = useParams();
+  const { t } = useTranslation();
   const { state } = useAuth();
   const token = state.status === 'logged_in' ? state.token : null;
   const id = params.id ?? '';
@@ -83,7 +87,7 @@ export default function ResultPage() {
         <div className="mx-auto flex min-h-dvh max-w-[420px] items-center justify-center px-5">
           <div className="text-center">
             <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-emerald-300" />
-            <div className="mt-3 text-xs tracking-widest text-white/70">LOADING</div>
+            <div className="mt-3 text-xs tracking-widest text-white/70">{t('common.loading')}</div>
             {error && (
               <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
                 {error}
@@ -113,16 +117,16 @@ export default function ResultPage() {
               type="button"
               onClick={() => nav('/')}
               className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white/80"
-              aria-label="Back"
+              aria-label={t('common.back')}
             >
               ←
             </button>
-            <div className="text-xs font-semibold tracking-[0.22em] text-white/80">RESULTS</div>
+            <div className="text-xs font-semibold tracking-[0.22em] text-white/80">{t('result.title')}</div>
             <button
               type="button"
               onClick={() => nav('/')}
               className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white/70"
-              aria-label="Close"
+              aria-label={t('common.close')}
             >
               ✕
             </button>
@@ -132,14 +136,14 @@ export default function ResultPage() {
             <div className="grid h-28 w-28 place-items-center rounded-full border border-yellow-500/40 bg-yellow-500/10">
               <div className="text-4xl text-yellow-200">!</div>
             </div>
-            <div className="mt-6 text-center text-sm font-semibold tracking-[0.22em]">RECEIPT ALREADY USED</div>
+            <div className="mt-6 text-center text-sm font-semibold tracking-[0.22em]">{t('result.receiptUsedTitle')}</div>
             <div className="mt-2 max-w-[320px] text-center text-xs text-white/55">
-              该小票已被使用，无法重复领取积分。
+              {t('result.receiptUsedBody')}
             </div>
 
             {submission.duplicate_of && (
               <div className="mt-5 w-full rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-[10px] tracking-[0.22em] text-white/40">DETAILS</div>
+                <div className="text-[10px] tracking-[0.22em] text-white/40">{t('result.details')}</div>
                 <div className="mt-2 break-all text-xs text-white/65">duplicate_of: {submission.duplicate_of}</div>
               </div>
             )}
@@ -151,14 +155,14 @@ export default function ResultPage() {
               onClick={() => nav('/scan')}
               className="w-full rounded-2xl bg-emerald-300 py-4 text-sm font-semibold text-black transition active:scale-[0.99]"
             >
-              SCAN NEW RECEIPT
+              {t('result.scanNewReceipt')}
             </button>
             <button
               type="button"
               onClick={() => nav('/')}
               className="w-full rounded-2xl border border-white/15 bg-white/5 py-4 text-sm font-semibold text-white/80 transition active:scale-[0.99]"
             >
-              BACK TO HOME
+              {t('result.backToHome')}
             </button>
           </div>
         </div>
@@ -175,16 +179,16 @@ export default function ResultPage() {
               type="button"
               onClick={() => nav('/')}
               className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white/80"
-              aria-label="Back"
+              aria-label={t('common.back')}
             >
               ←
             </button>
-            <div className="text-xs font-semibold tracking-[0.22em] text-white/80">RESULTS</div>
+            <div className="text-xs font-semibold tracking-[0.22em] text-white/80">{t('result.title')}</div>
             <button
               type="button"
               onClick={() => nav('/')}
               className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white/70"
-              aria-label="Close"
+              aria-label={t('common.close')}
             >
               ✕
             </button>
@@ -194,17 +198,17 @@ export default function ResultPage() {
             <div className="grid h-28 w-28 place-items-center rounded-full border border-red-500/40 bg-red-500/10">
               <div className="text-5xl text-red-400">×</div>
             </div>
-            <div className="mt-6 text-center text-sm font-semibold tracking-[0.22em]">NO BOTTLES DETECTED</div>
+            <div className="mt-6 text-center text-sm font-semibold tracking-[0.22em]">{t('result.noBottlesTitle')}</div>
             <div className="mt-2 max-w-[320px] text-center text-xs text-white/55">
-              我们没有在这张小票里识别到可奖励的瓶装饮料信息。
+              {t('result.noBottlesBody')}
             </div>
 
             <div className="mt-8 w-full rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-[10px] tracking-[0.22em] text-white/40">TIPS</div>
+              <div className="text-[10px] tracking-[0.22em] text-white/40">{t('result.tips')}</div>
               <ul className="mt-3 space-y-2 text-xs text-white/70">
-                <li>• Receipt contains beverage bottles</li>
-                <li>• Image is clear and readable</li>
-                <li>• Uploading a valid store receipt</li>
+                <li>• {t('result.tipContainsBottles')}</li>
+                <li>• {t('result.tipReadable')}</li>
+                <li>• {t('result.tipValidReceipt')}</li>
               </ul>
             </div>
           </div>
@@ -215,14 +219,14 @@ export default function ResultPage() {
               onClick={() => nav('/scan')}
               className="w-full rounded-2xl bg-emerald-300 py-4 text-sm font-semibold text-black transition active:scale-[0.99]"
             >
-              TRY AGAIN
+              {t('common.retry')}
             </button>
             <button
               type="button"
               onClick={() => nav('/')}
               className="w-full rounded-2xl border border-white/15 bg-white/5 py-4 text-sm font-semibold text-white/80 transition active:scale-[0.99]"
             >
-              BACK TO HOME
+              {t('result.backToHome')}
             </button>
           </div>
         </div>
@@ -241,16 +245,16 @@ export default function ResultPage() {
             type="button"
             onClick={() => nav('/')}
             className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white/80"
-            aria-label="Back"
+            aria-label={t('common.back')}
           >
             ←
           </button>
-          <div className="text-xs font-semibold tracking-[0.22em] text-white/80">RESULTS</div>
+          <div className="text-xs font-semibold tracking-[0.22em] text-white/80">{t('result.title')}</div>
           <button
             type="button"
             onClick={() => nav('/')}
             className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white/70"
-            aria-label="Close"
+            aria-label={t('common.close')}
           >
             ✕
           </button>
@@ -258,13 +262,13 @@ export default function ResultPage() {
 
         <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
           <div className="flex items-center justify-between">
-            <div className="text-[10px] tracking-[0.22em] text-white/40">DETECTED ITEMS</div>
+            <div className="text-[10px] tracking-[0.22em] text-white/40">{t('result.detectedItems')}</div>
             <div className="text-[10px] tracking-[0.22em] text-white/40">{drinks.length}</div>
           </div>
 
           <div className="mt-3 space-y-2">
             {drinks.map((d, idx) => {
-              const name = typeof d.retinfoDrinkName === 'string' ? d.retinfoDrinkName : 'Drink';
+              const name = typeof d.retinfoDrinkName === 'string' ? d.retinfoDrinkName : t('result.drinkFallback');
               const cap = d.retinfoDrinkCapacity == null ? null : String(d.retinfoDrinkCapacity);
               const amt = d.retinfoDrinkAmount == null ? null : String(d.retinfoDrinkAmount);
               return (
@@ -279,7 +283,7 @@ export default function ResultPage() {
                     <div>
                       <div className="text-sm font-medium">{name}</div>
                       <div className="mt-0.5 text-xs text-white/55">
-                        {cap ? `${cap} ml` : 'capacity unknown'} {amt ? `• x${amt}` : ''}
+                        {cap ? `${cap} ml` : t('result.capacityUnknown')} {amt ? `• x${amt}` : ''}
                       </div>
                     </div>
                   </div>
@@ -292,7 +296,7 @@ export default function ResultPage() {
 
             {drinks.length === 0 && (
               <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-3 text-xs text-white/60">
-                没有识别到明细(但这不代表小票无效)
+                {t('result.emptyItems')}
               </div>
             )}
           </div>
@@ -300,12 +304,12 @@ export default function ResultPage() {
 
         <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
           <div className="flex items-center justify-between text-xs text-white/60">
-            <div>POINTS SUMMARY</div>
+            <div>{t('result.pointsSummary')}</div>
             <div>{new Date(submission.created_at).toLocaleString()}</div>
           </div>
 
           <div className="mt-4 flex items-end justify-between">
-            <div className="text-[10px] tracking-[0.22em] text-white/40">TOTAL POINTS</div>
+            <div className="text-[10px] tracking-[0.22em] text-white/40">{t('result.totalPoints')}</div>
             <div className="text-4xl font-semibold tabular-nums text-emerald-300">
               {isClaimable ? `+${totalPoints}` : `${totalPoints}`}
             </div>
@@ -314,11 +318,11 @@ export default function ResultPage() {
           {hasPointsAudit && (
             <div className="mt-4 grid grid-cols-2 border-y border-white/10 py-3">
               <div className="border-r border-white/10 pr-3">
-                <div className="text-[10px] tracking-[0.18em] text-white/40">BASE POINTS</div>
+                <div className="text-[10px] tracking-[0.18em] text-white/40">{t('result.basePoints')}</div>
                 <div className="mt-1 text-base font-semibold tabular-nums text-white">{basePoints}</div>
               </div>
               <div className="pl-3">
-                <div className="text-[10px] tracking-[0.18em] text-white/40">MULTIPLIER</div>
+                <div className="text-[10px] tracking-[0.18em] text-white/40">{t('result.multiplier')}</div>
                 <div className="mt-1 text-base font-semibold tabular-nums text-white">x{formatMultiplier(multiplier)}</div>
               </div>
             </div>
@@ -326,11 +330,11 @@ export default function ResultPage() {
 
           {bonusSources.length > 0 && (
             <div className="mt-3 border-b border-white/10 pb-3">
-              <div className="text-[10px] tracking-[0.18em] text-emerald-100/60">REWARD SOURCES</div>
+              <div className="text-[10px] tracking-[0.18em] text-emerald-100/60">{t('result.rewardSources')}</div>
               <div className="mt-2 space-y-1">
                 {bonusSources.map((source, idx) => (
                   <div key={idx} className="text-xs text-emerald-50/85">
-                    {bonusSourceLabel(source)}
+                    {bonusSourceLabel(source, t)}
                   </div>
                 ))}
               </div>
@@ -339,7 +343,7 @@ export default function ResultPage() {
 
           {isNotClaimable && (
             <div className="mt-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-100">
-              小票验证有效，但没有可奖励的瓶装容量信息，因此本次积分为 0。
+              {t('result.notClaimable')}
             </div>
           )}
         </div>
@@ -350,14 +354,14 @@ export default function ResultPage() {
             onClick={() => nav('/')}
             className="w-full rounded-2xl bg-emerald-300 py-4 text-sm font-semibold text-black transition active:scale-[0.99]"
           >
-            CONFIRM
+            {t('common.confirm')}
           </button>
           <button
             type="button"
             onClick={() => nav('/scan')}
             className="w-full rounded-2xl border border-white/15 bg-white/5 py-4 text-sm font-semibold text-white/80 transition active:scale-[0.99]"
           >
-            RETAKE PHOTO
+            {t('result.retakePhoto')}
           </button>
         </div>
       </div>
