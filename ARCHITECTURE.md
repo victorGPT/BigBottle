@@ -312,6 +312,11 @@ Config:
 
 Migrations are the DB source of truth:
 
+Security boundary:
+- The web client must not access Supabase tables directly through anon/authenticated Data API roles.
+- `apps/web` calls the API gateway; `apps/api` and `supabase/functions/api` access database tables with the service role.
+- `supabase/migrations/202605110001_harden_public_table_rls.sql` enables RLS on backend-owned public tables and revokes anon/authenticated table privileges while preserving service-role API access.
+
 ### `supabase/migrations/20260206_init.sql`
 Tables:
 - `public.users`
