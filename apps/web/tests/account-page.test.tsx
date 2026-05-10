@@ -129,7 +129,7 @@ describe('AccountPage', () => {
             {
               key: 'gm_nft',
               title: 'GM-NFT',
-              description: '已持有最高等级 GM-NFT：Moon',
+              description: '已持有最高等级 GM-NFT：火星',
               badge: 'gm_nft',
               tag_label: 'GM-NFT',
               unlocked: true,
@@ -137,7 +137,7 @@ describe('AccountPage', () => {
               status: 'unlocked',
               effective_round_id: null,
               source_round_id: null,
-              node_name: 'Moon',
+              node_name: '火星',
               node_level: 5
             }
           ],
@@ -160,12 +160,12 @@ describe('AccountPage', () => {
 
     expect(await screen.findByText('VeBetterDAO Voter')).toBeInTheDocument();
     expect(screen.getByText('Vote in VeBetterDAO to unlock a BigPortal points multiplier next round.')).toBeInTheDocument();
-    expect(screen.getByText('Highest GM-NFT detected: Moon.')).toBeInTheDocument();
+    expect(screen.getByText('Highest GM-NFT node detected: Jupiter.')).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.queryByText('投票用户')).not.toBeInTheDocument();
       expect(screen.queryByText('参与 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。')).not.toBeInTheDocument();
-      expect(screen.queryByText('已持有最高等级 GM-NFT：Moon')).not.toBeInTheDocument();
+      expect(screen.queryByText('已持有最高等级 GM-NFT：火星')).not.toBeInTheDocument();
     });
   });
 

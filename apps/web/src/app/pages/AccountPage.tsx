@@ -11,6 +11,7 @@ import BrandLogo from '../components/BrandLogo';
 import LanguageToggle from '../components/LanguageToggle';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
+import { formatMultiplierValue, getGmNftLevelName, normalizeGmNftLevel } from '../../util/localizedDisplay';
 
 type TypedDataMessage = {
   domain: Record<string, unknown>;
@@ -222,7 +223,7 @@ export default function AccountPage() {
       : '—'
     : '****';
 
-  const totalMultiplierText = (achievementsSummary?.total_multiplier ?? 1).toFixed(2);
+  const totalMultiplierText = formatMultiplierValue(achievementsSummary?.total_multiplier ?? 1, t);
 
   const getAchievementCopy = (item: AccountAchievement) => {
     if (item.key === 'vebetter_vote_bonus') {
@@ -234,16 +235,14 @@ export default function AccountPage() {
     }
 
     if (item.key === 'gm_nft') {
-      const nodeName = typeof item.node_name === 'string' && item.node_name.trim()
-        ? item.node_name.trim()
-        : null;
+      const nodeName = getGmNftLevelName(normalizeGmNftLevel(item.node_level), t);
 
       return {
         title: t('account.achievement.gmNftTitle'),
-        description: item.unlocked && nodeName
+        description: item.unlocked
           ? t('account.achievement.gmNftUnlockedDescription', { name: nodeName })
           : t('account.achievement.gmNftDescription'),
-        tagLabel: item.unlocked && nodeName
+        tagLabel: item.unlocked
           ? t('account.tag.gmNftUnlocked', { name: nodeName })
           : t('account.tag.gmNft')
       };
@@ -274,7 +273,7 @@ export default function AccountPage() {
           <div className="text-[10px] font-semibold tracking-[0.24em] text-white/40">{t('account.totalPoints')}</div>
           <div className="mt-2 flex items-baseline gap-2">
             <div className="text-4xl font-semibold tabular-nums">{pointsText}</div>
-            <div className="text-[11px] font-semibold tracking-[0.22em] text-emerald-300">PTS</div>
+            <div className="text-[11px] font-semibold tracking-[0.22em] text-emerald-300">{t('common.pointsAbbrev')}</div>
           </div>
           <div className="mt-2 flex items-center justify-between text-[11px] text-white/45">
             <div className="font-mono tracking-wider">{t('account.level')} —</div>
@@ -317,7 +316,7 @@ export default function AccountPage() {
               <div className="mt-1 text-[11px] text-white/50">{t('account.achievementsSubtitle')}</div>
             </div>
             <div className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
-              x{totalMultiplierText}
+              {totalMultiplierText}
             </div>
           </div>
 
@@ -401,7 +400,9 @@ export default function AccountPage() {
                           <div className="mt-0.5 text-[11px] text-white/55">{copy.description}</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-[12px] font-semibold text-emerald-200">x{item.multiplier.toFixed(2)}</div>
+                          <div className="text-[12px] font-semibold text-emerald-200">
+                            {formatMultiplierValue(item.multiplier, t)}
+                          </div>
                           <div className="mt-0.5 text-[10px] text-white/50">
                             {item.unlocked ? t('account.achievement.unlocked') : t('account.achievement.locked')}
                           </div>

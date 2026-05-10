@@ -257,15 +257,12 @@ export default function RewardsPage() {
               <div className="mt-1 flex items-center justify-between text-[11px] text-white/50">
                 <div>{new Date(c.created_at).toLocaleString()}</div>
                 <div className="flex items-center gap-2">
-                  <div className="tabular-nums">{c.points_claimed} pts</div>
+                  <div className="tabular-nums">
+                    {t('rewards.pointsClaimed', { points: c.points_claimed.toLocaleString() })}
+                  </div>
                   {c.tx_hash && <div className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5">{shortHash(c.tx_hash)}</div>}
                 </div>
               </div>
-              {c.status === 'failed' && c.failure_reason && (
-                <div className="mt-2 text-[11px] text-red-200/80">
-                  {c.failure_reason}
-                </div>
-              )}
             </div>
           ))}
 

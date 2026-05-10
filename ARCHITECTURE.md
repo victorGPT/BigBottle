@@ -83,10 +83,17 @@ File: `apps/web/src/i18n.ts`
 - Default language: English (`en`).
 - Supported languages: English (`en`), Simplified Chinese (`zh-Hans`), Traditional Chinese (`zh-Hant`), and Japanese (`ja`).
 - Language preference is stored in `localStorage` under `bigbottle.language` when available.
+- Also owns localized frontend display labels for statuses, multiplier values, and GM-NFT level names.
 
 File: `apps/web/src/app/components/LanguageToggle.tsx`
 - Shared compact flag language menu.
 - Exposed from the Dashboard header as the primary language setting entry and reused from the Account header. The Dashboard header keeps the language entry compact and hides the wordmark on very narrow screens to preserve action space.
+
+File: `apps/web/src/util/localizedDisplay.ts`
+- Shared frontend display helpers for locale-dependent numeric/status labels:
+  - `formatMultiplierValue(value, t): string`
+  - `getGmNftLevelName(level, t): string`
+  - `getSubmissionStatusLabel(status, t): string`
 
 ### Routes
 File: `apps/web/src/app/App.tsx`
@@ -138,7 +145,7 @@ File: `apps/web/src/app/pages/AccountPage.tsx`
 
 Observable account behavior:
 - Loads `GET /account/summary` and `GET /account/achievements` after login.
-- Known achievement rows (`vebetter_vote_bonus`, `gm_nft`) use API fields for status, multiplier, and dynamic GM-NFT node data, but render user-facing titles/descriptions/tags through `apps/web/src/i18n.ts` so the selected language controls the page copy.
+- Known achievement rows (`vebetter_vote_bonus`, `gm_nft`) use API fields for status, multiplier, and GM-NFT node level, but render user-facing titles/descriptions/tags/level names through `apps/web/src/i18n.ts` so the selected language controls the page copy.
 
 Login flow:
 1. Prefer VeWorld source (`setSource('veworld')`) when injected; otherwise keep Sync2/WalletConnect available.

@@ -4,6 +4,11 @@ import { useTranslation } from 'react-i18next';
 import Screen from '../components/Screen';
 import { useAuth } from '../../state/auth';
 import { apiGet } from '../../util/api';
+import {
+  formatMultiplierValue,
+  getGmNftLevelName,
+  normalizeGmNftLevel
+} from '../../util/localizedDisplay';
 
 type Submission = {
   id: string;
@@ -33,16 +38,12 @@ function toDisplayNumber(value: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function formatMultiplier(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-}
-
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 function bonusSourceLabel(source: { type?: unknown; multiplier?: unknown; name?: unknown; level?: unknown }, t: Translate): string {
-  const multiplier = formatMultiplier(toDisplayNumber(source.multiplier, 1));
+  const multiplier = formatMultiplierValue(toDisplayNumber(source.multiplier, 1), t);
   if (source.type === 'gm_nft') {
-    const name = typeof source.name === 'string' && source.name ? source.name : 'GM-NFT';
+    const name = getGmNftLevelName(normalizeGmNftLevel(source.level), t);
     return t('result.bonus.gmNft', { name, multiplier });
   }
   if (source.type === 'vebetter_vote_bonus') return t('result.bonus.voter', { multiplier });
@@ -144,7 +145,9 @@ export default function ResultPage() {
             {submission.duplicate_of && (
               <div className="mt-5 w-full rounded-2xl border border-white/10 bg-white/5 p-4">
                 <div className="text-[10px] tracking-[0.22em] text-white/40">{t('result.details')}</div>
-                <div className="mt-2 break-all text-xs text-white/65">duplicate_of: {submission.duplicate_of}</div>
+                <div className="mt-2 break-all text-xs text-white/65">
+                  {t('result.duplicateOf', { id: submission.duplicate_of })}
+                </div>
               </div>
             )}
           </div>
@@ -323,7 +326,9 @@ export default function ResultPage() {
               </div>
               <div className="pl-3">
                 <div className="text-[10px] tracking-[0.18em] text-white/40">{t('result.multiplier')}</div>
-                <div className="mt-1 text-base font-semibold tabular-nums text-white">x{formatMultiplier(multiplier)}</div>
+                <div className="mt-1 text-base font-semibold tabular-nums text-white">
+                  {formatMultiplierValue(multiplier, t)}
+                </div>
               </div>
             </div>
           )}
