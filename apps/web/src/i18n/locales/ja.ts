@@ -150,7 +150,14 @@ const locale = {
     "result.bonus.gmNft": "GM-NFT ノード：{{name}} · {{multiplier}}",
     "result.bonus.voter": "VeBetterDAO 投票ユーザー · {{multiplier}}",
     "result.bonus.legacy": "旧レシート · 最終ポイントのみ",
-    "result.bonus.generic": "ボーナス · {{multiplier}}"
+    "result.bonus.generic": "ボーナス · {{multiplier}}",
+    "veworldLink.connectingTitle": "VeWorld に接続中",
+    "veworldLink.connectingBody": "続行するには VeWorld で接続を確認してください。",
+    "veworldLink.signingTitle": "署名を待機中",
+    "veworldLink.signingBody": "ログインを完了するには VeWorld で署名を確認してください。",
+    "veworldLink.errorTitle": "VeWorld の接続に失敗しました",
+    "veworldLink.errorBody": "アカウント画面に戻ってもう一度お試しください。",
+    "veworldLink.backToAccount": "アカウントに戻る"
   }
 } as const satisfies LocaleSchema;
 

@@ -12,6 +12,12 @@ import LanguageToggle from '../components/LanguageToggle';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
 import { formatMultiplierValue, getGmNftLevelName, normalizeGmNftLevel } from '../../util/localizedDisplay';
+import { veChainNetwork } from '../../config/vechainNetwork';
+import {
+  beginVeWorldWalletLinkLogin,
+  openVeWorldWalletLink,
+  shouldUseVeWorldWalletLink
+} from '../../util/veworldWalletLink';
 
 type TypedDataMessage = {
   domain: Record<string, unknown>;
@@ -133,6 +139,15 @@ export default function AccountPage() {
     setError(null);
     setIsBusy(true);
     try {
+      if (shouldUseVeWorldWalletLink()) {
+        openVeWorldWalletLink(
+          beginVeWorldWalletLinkLogin({
+            networkType: veChainNetwork.type
+          })
+        );
+        return;
+      }
+
       const vechainProvider =
         typeof window !== 'undefined'
           ? ((window as unknown as { vechain?: { isInAppBrowser?: boolean } }).vechain ?? null)
