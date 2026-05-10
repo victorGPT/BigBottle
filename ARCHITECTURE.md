@@ -85,8 +85,8 @@ File: `apps/web/src/i18n.ts`
 - Language preference is stored in `localStorage` under `bigbottle.language` when available.
 
 File: `apps/web/src/app/components/LanguageToggle.tsx`
-- Shared flag-based language switch button.
-- Currently exposed from the Account header.
+- Shared compact flag language menu.
+- Exposed from the Dashboard header as the primary language setting entry and reused from the Account header. The Dashboard header keeps the language entry compact and hides the wordmark on very narrow screens to preserve action space.
 
 ### Routes
 File: `apps/web/src/app/App.tsx`
