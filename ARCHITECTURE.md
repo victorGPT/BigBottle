@@ -99,6 +99,11 @@ File: `apps/web/src/util/localizedDisplay.ts`
   - `getGmNftLevelName(level, t): string`
   - `getSubmissionStatusLabel(status, t): string`
 
+File: `apps/web/src/util/veworldWalletLink.ts`
+- Browser-side VeWorld Wallet Link protocol helper for mobile Safari/Chrome without an injected `window.vechain`.
+- Starts login with `https://www.veworld.com/api/v1/connect`, stores the NaCl keypair/session state under `bigbottle.veworld_wallet_link`, handles VeWorld callback payload decryption, and builds the follow-up `signTypedData` link.
+- Mainnet/testnet genesis IDs are fixed constants matching VeChain public networks. Unsupported local/solo networks throw before opening VeWorld.
+
 File: `apps/web/scripts/check-i18n.mjs`
 - Runs through `pnpm -C apps/web i18n:check` and as part of `apps/web` build.
 - Checks locale key parity, interpolation variable parity, and hardcoded JSX text in `apps/web/src/app`.
@@ -108,6 +113,7 @@ File: `apps/web/scripts/check-i18n.mjs`
 File: `apps/web/src/app/App.tsx`
 - `/` -> `DashboardPage`
 - `/account` -> `AccountPage` (login lives here)
+- `/veworld/callback/:event` -> `VeWorldCallbackPage` (VeWorld mobile Wallet Link connect/signature callback)
 - `/scan` -> `ScanPage` (requires login)
 - `/result/:id` -> `ResultPage` (requires login)
 - `/rewards` -> `RewardsPage` (requires login; points -> B3TR claim UI)
@@ -157,12 +163,13 @@ Observable account behavior:
 - Known achievement rows (`vebetter_vote_bonus`, `gm_nft`) use API fields for status, multiplier, and GM-NFT node level, but render user-facing titles/descriptions/tags/level names through `apps/web/src/i18n.ts` so the selected language controls the page copy.
 
 Login flow:
-1. Prefer VeWorld source (`setSource('veworld')`) when injected; otherwise keep Sync2/WalletConnect available.
-2. `connect()` via `useDAppKitWallet` from `@vechain/vechain-kit`.
-3. Wait `450ms` before the next signing request (VeWorld iOS in-app browser stability).
-4. `POST /auth/challenge` with `{ address }` to receive `{ challenge_id, typed_data }`.
-5. `requestTypedData(domain, types, value, { signer: address })`.
-6. `POST /auth/verify` with `{ challenge_id, signature }` to receive `{ access_token }`.
+1. If the user is on a mobile browser without injected VeWorld (`window.vechain` missing), start the VeWorld Wallet Link flow through `apps/web/src/util/veworldWalletLink.ts`.
+2. Otherwise prefer VeWorld source (`setSource('veworld')`) when injected; keep Sync2/WalletConnect available.
+3. `connect()` via `useDAppKitWallet` from `@vechain/vechain-kit`.
+4. Wait `450ms` before the next signing request (VeWorld iOS in-app browser stability).
+5. `POST /auth/challenge` with `{ address }` to receive `{ challenge_id, typed_data }`.
+6. `requestTypedData(domain, types, value, { signer: address })`.
+7. `POST /auth/verify` with `{ challenge_id, signature }` to receive `{ access_token }`.
 
 ### Receipt Capture, Upload, Verify
 File: `apps/web/src/app/pages/ScanPage.tsx`
@@ -198,6 +205,7 @@ Behavior:
 
 ### Web Tests
 - `apps/web/tests/account-page.test.tsx`: login flow guardrails (including VeWorld signing sequence)
+- `apps/web/tests/veworld-wallet-link.test.ts`: VeWorld Wallet Link URL generation and encrypted callback handling
 - `apps/web/tests/scan-page-compress.test.tsx`: compression + init content type behavior
 - `apps/web/tests/result-page-duplicate.test.tsx`: duplicate receipt UI branch
 - `apps/web/tests/rewards-page.test.tsx`: rewards quote + claim request guardrails

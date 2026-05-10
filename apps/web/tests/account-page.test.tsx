@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => {
     connect: vi.fn(),
     setSource: vi.fn(),
     requestTypedData: vi.fn(),
+    shouldUseVeWorldWalletLink: vi.fn(),
+    beginVeWorldWalletLinkLogin: vi.fn(),
+    openVeWorldWalletLink: vi.fn(),
     logout: vi.fn(),
     authState: {
       status: 'anonymous',
@@ -48,6 +51,14 @@ vi.mock('../src/util/api', () => {
   };
 });
 
+vi.mock('../src/util/veworldWalletLink', () => {
+  return {
+    shouldUseVeWorldWalletLink: (...args: unknown[]) => mocks.shouldUseVeWorldWalletLink(...args),
+    beginVeWorldWalletLinkLogin: (...args: unknown[]) => mocks.beginVeWorldWalletLinkLogin(...args),
+    openVeWorldWalletLink: (...args: unknown[]) => mocks.openVeWorldWalletLink(...args)
+  };
+});
+
 vi.mock('@vechain/vechain-kit', () => {
   return {
     useDAppKitWallet: () => ({
@@ -70,8 +81,13 @@ describe('AccountPage', () => {
     mocks.connect.mockReset();
     mocks.setSource.mockReset();
     mocks.requestTypedData.mockReset();
+    mocks.shouldUseVeWorldWalletLink.mockReset();
+    mocks.beginVeWorldWalletLinkLogin.mockReset();
+    mocks.openVeWorldWalletLink.mockReset();
     mocks.logout.mockReset();
     mocks.authState = { status: 'anonymous', token: null, user: null };
+    mocks.shouldUseVeWorldWalletLink.mockReturnValue(false);
+    mocks.beginVeWorldWalletLinkLogin.mockReturnValue('https://www.veworld.com/api/v1/connect?public_key=test');
     mocks.apiGet.mockResolvedValue({
       user: {
         id: 'user',
@@ -85,6 +101,7 @@ describe('AccountPage', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
     delete (window as any).vechain;
     void i18n.changeLanguage('en');
@@ -239,6 +256,19 @@ describe('AccountPage', () => {
       created_at: 'now'
     });
     expect(mocks.navigate).toHaveBeenCalledWith('/', { replace: true });
+  });
+
+  it('opens VeWorld Wallet Link when mobile browser has no injected provider', () => {
+    mocks.shouldUseVeWorldWalletLink.mockReturnValue(true);
+
+    render(<AccountPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
+
+    expect(mocks.beginVeWorldWalletLinkLogin).toHaveBeenCalledWith({ networkType: 'main' });
+    expect(mocks.openVeWorldWalletLink).toHaveBeenCalledWith('https://www.veworld.com/api/v1/connect?public_key=test');
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
   it('retries typed-data signing without chainId when VeWorld reports invalid signed data message', async () => {

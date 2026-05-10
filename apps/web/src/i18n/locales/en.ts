@@ -148,7 +148,14 @@ const en = {
     "result.bonus.gmNft": "GM-NFT node: {{name}} · {{multiplier}}",
     "result.bonus.voter": "VeBetterDAO Voter · {{multiplier}}",
     "result.bonus.legacy": "Legacy receipt · final points only",
-    "result.bonus.generic": "Bonus · {{multiplier}}"
+    "result.bonus.generic": "Bonus · {{multiplier}}",
+    "veworldLink.connectingTitle": "Connecting VeWorld",
+    "veworldLink.connectingBody": "Confirm the connection in VeWorld to continue.",
+    "veworldLink.signingTitle": "Waiting for signature",
+    "veworldLink.signingBody": "Confirm the login signature in VeWorld to finish.",
+    "veworldLink.errorTitle": "VeWorld connection failed",
+    "veworldLink.errorBody": "Please return to account and try again.",
+    "veworldLink.backToAccount": "Back to account"
   }
 } as const;
 
