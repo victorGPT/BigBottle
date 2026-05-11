@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -19,12 +19,50 @@ type VerifyResponse = {
   user: { id: string; wallet_address: string; created_at: string };
 };
 
+type CallbackOutcome =
+  | { type: 'open-veworld'; url: string }
+  | { type: 'authenticated'; accessToken: string; user: VerifyResponse['user'] };
+
+const callbackRuns = new Map<string, Promise<CallbackOutcome>>();
+
+function runCallbackOnce(url: string): Promise<CallbackOutcome> {
+  const existing = callbackRuns.get(url);
+  if (existing) return existing;
+
+  const run = handleCallback(url);
+  callbackRuns.set(url, run);
+  return run;
+}
+
+async function handleCallback(url: string): Promise<CallbackOutcome> {
+  if (url.includes('/onVeWorldConnected')) {
+    const { address } = completeVeWorldConnectedCallback(url);
+    const challenge = await apiPost<VeWorldChallenge>('/auth/challenge', { address }, null);
+    return { type: 'open-veworld', url: createVeWorldTypedDataUrl(challenge) };
+  }
+
+  if (url.includes('/onVeWorldSignedTypedData')) {
+    const signed = completeVeWorldSignedTypedDataCallback(url);
+    const verify = await apiPost<VerifyResponse>(
+      '/auth/verify',
+      { challenge_id: signed.challengeId, signature: signed.signature },
+      null
+    );
+    await apiGet<{ user: VerifyResponse['user'] }>('/me', verify.access_token);
+    clearVeWorldWalletLinkState();
+    return { type: 'authenticated', accessToken: verify.access_token, user: verify.user };
+  }
+
+  throw new Error('veworld:unknown_callback');
+}
+
 export default function VeWorldCallbackPage() {
   const nav = useNavigate();
   const { t } = useTranslation();
   const { setToken } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'connecting' | 'signing'>('connecting');
+  const appliedUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,30 +72,24 @@ export default function VeWorldCallbackPage() {
         const url = window.location.href;
         if (url.includes('/onVeWorldConnected')) {
           setMode('connecting');
-          const { address } = completeVeWorldConnectedCallback(url);
-          const challenge = await apiPost<VeWorldChallenge>('/auth/challenge', { address }, null);
-          if (cancelled) return;
-          openVeWorldWalletLink(createVeWorldTypedDataUrl(challenge));
+        } else if (url.includes('/onVeWorldSignedTypedData')) {
+          setMode('signing');
+        }
+
+        const outcome = await runCallbackOnce(url);
+        if (cancelled || appliedUrlRef.current === url) return;
+        appliedUrlRef.current = url;
+
+        if (outcome.type === 'open-veworld') {
+          openVeWorldWalletLink(outcome.url);
           return;
         }
 
-        if (url.includes('/onVeWorldSignedTypedData')) {
-          setMode('signing');
-          const signed = completeVeWorldSignedTypedDataCallback(url);
-          const verify = await apiPost<VerifyResponse>(
-            '/auth/verify',
-            { challenge_id: signed.challengeId, signature: signed.signature },
-            null
-          );
-          await apiGet<{ user: VerifyResponse['user'] }>('/me', verify.access_token);
-          if (cancelled) return;
-          clearVeWorldWalletLinkState();
-          await setToken(verify.access_token, verify.user);
+        if (outcome.type === 'authenticated') {
+          await setToken(outcome.accessToken, outcome.user);
           nav('/', { replace: true });
           return;
         }
-
-        throw new Error('veworld:unknown_callback');
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }

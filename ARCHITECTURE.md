@@ -149,6 +149,7 @@ Public functions:
 ### Auth State (JWT in localStorage)
 File: `apps/web/src/state/auth.tsx`
 - Storage key: `bigbottle.access_token`
+- `setToken` and `logout` are stable callback references so auth state refreshes do not retrigger route effects that depend on auth actions.
 
 Public exports:
 - `AuthProvider(props: { children: React.ReactNode }): JSX.Element`
@@ -170,6 +171,9 @@ Login flow:
 5. `POST /auth/challenge` with `{ address }` to receive `{ challenge_id, typed_data }`.
 6. `requestTypedData(domain, types, value, { signer: address })`.
 7. `POST /auth/verify` with `{ challenge_id, signature }` to receive `{ access_token }`.
+
+VeWorld Wallet Link callback behavior:
+- `VeWorldCallbackPage` processes each callback URL through a shared in-memory promise so auth initialization, React re-renders, or StrictMode remounts cannot submit the same `challenge_id` to `/auth/verify` more than once.
 
 ### Receipt Capture, Upload, Verify
 File: `apps/web/src/app/pages/ScanPage.tsx`
@@ -205,6 +209,7 @@ Behavior:
 
 ### Web Tests
 - `apps/web/tests/account-page.test.tsx`: login flow guardrails (including VeWorld signing sequence)
+- `apps/web/tests/veworld-callback-page.test.tsx`: VeWorld callback idempotency guard for duplicate rerenders
 - `apps/web/tests/veworld-wallet-link.test.ts`: VeWorld Wallet Link URL generation and encrypted callback handling
 - `apps/web/tests/scan-page-compress.test.tsx`: compression + init content type behavior
 - `apps/web/tests/result-page-duplicate.test.tsx`: duplicate receipt UI branch
