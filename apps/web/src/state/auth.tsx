@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { apiGet, apiPost } from '../util/api';
 
 type ApiUser = {
@@ -87,34 +87,38 @@ export function AuthProvider(props: { children: React.ReactNode }) {
     };
   }, []);
 
+  const setToken = useCallback(async (token: string, user?: ApiUser) => {
+    writeToken(token);
+
+    if (user) {
+      setState({ status: 'logged_in', token, user });
+      return;
+    }
+
+    setState({ status: 'loading', token, user: null });
+
+    try {
+      const res = await apiGet<{ user: ApiUser }>('/me', token);
+      setState({ status: 'logged_in', token, user: res.user });
+    } catch {
+      writeToken(null);
+      setState({ status: 'anonymous', token: null, user: null });
+      throw new Error('/me: unauthorized');
+    }
+  }, []);
+
+  const logout = useCallback(() => {
+    writeToken(null);
+    setState({ status: 'anonymous', token: null, user: null });
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       state,
-      async setToken(token, user) {
-        writeToken(token);
-
-        if (user) {
-          setState({ status: 'logged_in', token, user });
-          return;
-        }
-
-        setState({ status: 'loading', token, user: null });
-
-        try {
-          const res = await apiGet<{ user: ApiUser }>('/me', token);
-          setState({ status: 'logged_in', token, user: res.user });
-        } catch {
-          writeToken(null);
-          setState({ status: 'anonymous', token: null, user: null });
-          throw new Error('/me: unauthorized');
-        }
-      },
-      logout() {
-        writeToken(null);
-        setState({ status: 'anonymous', token: null, user: null });
-      }
+      setToken,
+      logout
     }),
-    [state]
+    [logout, setToken, state]
   );
 
   return <AuthContext.Provider value={value}>{props.children}</AuthContext.Provider>;
