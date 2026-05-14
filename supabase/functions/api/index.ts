@@ -480,6 +480,25 @@ function createRepo(supabase: SupabaseClient) {
       return ensureOk(res, "Failed to update submission") as DbReceiptSubmission;
     },
 
+    // Self-heal: rescue submissions wedged in `verifying` past a sane upper
+    // bound (verify P99 < 30s). Caused once by a platform-level Deno runtime
+    // regression that killed the function below the JS exception boundary,
+    // leaving orphans the catch block could not clean up. Cheap O(N≈0) sweep
+    // executed from /submissions/init so it runs on the upload path itself,
+    // bounded by daily submission limits.
+    async sweepStuckVerifying(olderThanMinutes = 5): Promise<void> {
+      const cutoff = new Date(Date.now() - olderThanMinutes * 60_000).toISOString();
+      await supabase
+        .from("receipt_submissions")
+        .update({
+          status: "rejected",
+          rejection_code: "verify_timeout",
+          verified_at: new Date().toISOString(),
+        })
+        .eq("status", "verifying")
+        .lt("created_at", cutoff);
+    },
+
     async computeReceiptFingerprint(input: {
       receipt_time_raw: string | null;
       dify_drink_list: unknown | null;
@@ -2276,6 +2295,11 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
     const repo = getRepo();
     const s3 = getS3();
+
+    // Best-effort sweep of verify-stage orphans before accepting new work.
+    repo.sweepStuckVerifying().catch((err) =>
+      console.warn("sweep_stuck_verifying_failed", String(err)),
+    );
 
     const body = await readJson(req);
     if (!isRecord(body)) return errorResponse(config, req, 400, "invalid_body");
