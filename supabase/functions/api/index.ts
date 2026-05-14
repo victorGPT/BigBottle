@@ -10,17 +10,17 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import {
   createClient,
   type SupabaseClient,
-} from "https://esm.sh/@supabase/supabase-js@2.57.4?target=deno";
-import { AwsClient } from "https://esm.sh/aws4fetch@1.0.20?target=deno";
-import { getAddress, getBytes, Interface, formatUnits, verifyTypedData } from "https://esm.sh/ethers@6.15.0?target=deno";
-import { SignJWT, jwtVerify } from "https://esm.sh/jose@5.2.4?target=deno";
-import { Address, Transaction } from "https://esm.sh/@vechain/sdk-core@2.0.7?target=deno";
+} from "npm:@supabase/supabase-js@2.57.4";
+import { AwsClient } from "npm:aws4fetch@1.0.20";
+import { getAddress, getBytes, Interface, formatUnits, verifyTypedData } from "npm:ethers@6.15.0";
+import { SignJWT, jwtVerify } from "npm:jose@5.2.4";
+import { Address, Transaction } from "npm:@vechain/sdk-core@2.0.7";
 import {
   ProviderInternalBaseWallet,
   ThorClient,
   VeChainProvider,
   type TransactionReceipt,
-} from "https://esm.sh/@vechain/sdk-network@2.0.7?target=deno";
+} from "npm:@vechain/sdk-network@2.0.7";
 
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
