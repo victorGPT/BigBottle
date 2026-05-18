@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { computeClaimableB3trWei } from './rewards.js';
-import { createOrGetRewardClaimAndSubmit } from './rewards-service.js';
+import { createOrGetRewardClaimAndSubmit, getRewardsPoolStatus } from './rewards-service.js';
 import type { DbReceiptSubmission, DbRewardClaim, DbRewardConversionRate } from './supabase.js';
 
 function rewardClaim(overrides: Partial<DbRewardClaim> = {}): DbRewardClaim {
@@ -118,7 +118,13 @@ describe('rewards', () => {
         return { txHash: submittedClaim.tx_hash!, rawTx: submittedClaim.raw_tx! };
       },
       broadcastRawTransaction: async () => ({ txHash: submittedClaim.tx_hash! }),
-      getTransactionReceipt: async () => null
+      getTransactionReceipt: async () => null,
+      getRewardPoolBalance: async () => ({
+        availableFundsWei: 0n,
+        appId: `0x${'0'.repeat(64)}`,
+        rewardsPoolAddress: '0x0000000000000000000000000000000000000000',
+        network: 'testnet' as const
+      })
     };
 
     await createOrGetRewardClaimAndSubmit({
@@ -194,7 +200,13 @@ describe('rewards', () => {
         return { txHash: submittedClaim.tx_hash!, rawTx: submittedClaim.raw_tx! };
       },
       broadcastRawTransaction: async () => ({ txHash: submittedClaim.tx_hash! }),
-      getTransactionReceipt: async () => null
+      getTransactionReceipt: async () => null,
+      getRewardPoolBalance: async () => ({
+        availableFundsWei: 0n,
+        appId: `0x${'0'.repeat(64)}`,
+        rewardsPoolAddress: '0x0000000000000000000000000000000000000000',
+        network: 'testnet' as const
+      })
     };
 
     await createOrGetRewardClaimAndSubmit({
@@ -260,7 +272,13 @@ describe('rewards', () => {
         return { txHash: submittedClaim.tx_hash!, rawTx: submittedClaim.raw_tx! };
       },
       broadcastRawTransaction: async () => ({ txHash: submittedClaim.tx_hash! }),
-      getTransactionReceipt: async () => null
+      getTransactionReceipt: async () => null,
+      getRewardPoolBalance: async () => ({
+        availableFundsWei: 0n,
+        appId: `0x${'0'.repeat(64)}`,
+        rewardsPoolAddress: '0x0000000000000000000000000000000000000000',
+        network: 'testnet' as const
+      })
     };
 
     await createOrGetRewardClaimAndSubmit({
@@ -277,5 +295,26 @@ describe('rewards', () => {
     expect(metadata.sources.items_truncated).toBe(true);
     expect(metadata.sources.items).toHaveLength(10);
     expect(metadata.sources.items[0].drinks).toHaveLength(3);
+  });
+
+  it('formats reward pool available funds from chain status', async () => {
+    const pool = await getRewardsPoolStatus({
+      signRewardDistributionTx: async () => ({ txHash: '0x', rawTx: '0x' }),
+      broadcastRawTransaction: async () => ({ txHash: '0x' }),
+      getTransactionReceipt: async () => null,
+      getRewardPoolBalance: async () => ({
+        availableFundsWei: 12_345_678_900_000_000_000n,
+        appId: `0x${'1'.repeat(64)}`,
+        rewardsPoolAddress: '0x0000000000000000000000000000000000000001',
+        network: 'mainnet'
+      })
+    });
+
+    expect(pool.b3tr_available_funds_wei).toBe('12345678900000000000');
+    expect(pool.b3tr_available_funds).toBe('12.3456789');
+    expect(pool.app_id).toBe(`0x${'1'.repeat(64)}`);
+    expect(pool.rewards_pool_address).toBe('0x0000000000000000000000000000000000000001');
+    expect(pool.network).toBe('mainnet');
+    expect(Date.parse(pool.updated_at)).not.toBeNaN();
   });
 });

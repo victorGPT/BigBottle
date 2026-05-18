@@ -29,6 +29,15 @@ const claimedQuote = {
   b3tr_amount: '0'
 };
 
+const pool = {
+  b3tr_available_funds_wei: '1234567890000000000000',
+  b3tr_available_funds: '1234.56789',
+  rewards_pool_address: '0x0000000000000000000000000000000000000001',
+  app_id: `0x${'1'.repeat(64)}`,
+  network: 'testnet',
+  updated_at: '2026-03-05T00:00:00.000Z'
+};
+
 const submittedClaim = {
   id: 'claim-1',
   client_claim_id: '11111111-1111-1111-1111-111111111111',
@@ -86,6 +95,9 @@ describe('RewardsPage', () => {
       if (typeof path === 'string' && path.startsWith('/rewards/claims')) {
         return Promise.resolve({ claims: [] });
       }
+      if (path === '/rewards/pool') {
+        return Promise.resolve({ pool });
+      }
       throw new Error(`Unexpected apiGet path: ${String(path)}`);
     });
 
@@ -118,6 +130,8 @@ describe('RewardsPage', () => {
     );
 
     expect(screen.getByText('Claimable')).toBeInTheDocument();
+    expect(await screen.findByText('Reward pool')).toBeInTheDocument();
+    expect(screen.getByText('1,234.5678')).toBeInTheDocument();
     expect(await screen.findByText('1.5')).toBeInTheDocument();
     expect(screen.getByText(/Exchange rate/)).toBeInTheDocument();
 
@@ -140,6 +154,7 @@ describe('RewardsPage', () => {
     mocks.apiGet.mockImplementation((path: unknown) => {
       if (path === '/rewards/quote') return Promise.resolve({ quote: quoteState });
       if (path === '/rewards/claims?limit=20') return Promise.resolve({ claims: claimList });
+      if (path === '/rewards/pool') return Promise.resolve({ pool });
       if (path === '/rewards/claims/claim-1') {
         quoteState = claimedQuote;
         claimList = [confirmedClaim];

@@ -3,6 +3,7 @@ import BottomTabBar from '../components/BottomTabBar';
 import ClaimStatusPanel, { getClaimButtonLabel } from '../components/ClaimStatusPanel';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Coins } from 'lucide-react';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
 
@@ -32,11 +33,27 @@ type RewardClaim = {
   updated_at: string;
 };
 
+type RewardsPool = {
+  b3tr_available_funds_wei: string;
+  b3tr_available_funds: string;
+  rewards_pool_address: string;
+  app_id: string;
+  network: 'testnet' | 'mainnet';
+  updated_at: string;
+};
+
 function formatTokenAmount(amount: string, maxDecimals = 4): string {
   const [whole, frac] = amount.split('.');
   if (!frac) return amount;
   const trimmed = frac.slice(0, maxDecimals).replace(/0+$/, '');
   return trimmed ? `${whole}.${trimmed}` : whole;
+}
+
+function formatTokenAmountWithGroups(amount: string, maxDecimals = 4): string {
+  const formatted = formatTokenAmount(amount, maxDecimals);
+  const [whole, frac] = formatted.split('.');
+  const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return frac ? `${groupedWhole}.${frac}` : groupedWhole;
 }
 
 function shortHash(hash: string): string {
@@ -51,6 +68,8 @@ export default function RewardsPage() {
   const token = state.status === 'logged_in' ? state.token : null;
 
   const [quote, setQuote] = useState<RewardsQuote | null>(null);
+  const [pool, setPool] = useState<RewardsPool | null>(null);
+  const [poolError, setPoolError] = useState(false);
   const [claims, setClaims] = useState<RewardClaim[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isClaiming, setIsClaiming] = useState(false);
@@ -80,6 +99,14 @@ export default function RewardsPage() {
     ]);
     setQuote(q.quote);
     setClaims(c.claims);
+    try {
+      const p = await apiGet<{ pool: RewardsPool }>('/rewards/pool', token);
+      setPool(p.pool);
+      setPoolError(false);
+    } catch {
+      setPool(null);
+      setPoolError(true);
+    }
   }
 
   useEffect(() => {
@@ -87,13 +114,16 @@ export default function RewardsPage() {
     async function run() {
       if (!token) return;
       try {
-        const [q, c] = await Promise.all([
+        const [q, c, p] = await Promise.all([
           apiGet<{ quote: RewardsQuote }>('/rewards/quote', token),
-          apiGet<{ claims: RewardClaim[] }>('/rewards/claims?limit=20', token)
+          apiGet<{ claims: RewardClaim[] }>('/rewards/claims?limit=20', token),
+          apiGet<{ pool: RewardsPool }>('/rewards/pool', token).catch(() => null)
         ]);
         if (cancelled) return;
         setQuote(q.quote);
         setClaims(c.claims);
+        setPool(p?.pool ?? null);
+        setPoolError(!p);
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : String(e));
@@ -179,6 +209,27 @@ export default function RewardsPage() {
             {error}
           </div>
         )}
+
+        <div className="mt-5 overflow-hidden rounded-3xl border border-emerald-300/20 bg-[linear-gradient(135deg,rgba(16,185,129,0.16),rgba(255,255,255,0.04)_42%,rgba(255,255,255,0.02))] p-5 shadow-[0_18px_70px_rgba(16,185,129,0.08)]">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-[10px] tracking-[0.24em] text-emerald-100/60">{t('rewards.pool.title')}</div>
+              <div className="mt-3 text-5xl font-semibold leading-none tracking-normal tabular-nums">
+                {pool ? formatTokenAmountWithGroups(pool.b3tr_available_funds, 4) : '—'}
+              </div>
+              <div className="mt-2 text-[11px] tracking-[0.22em] text-emerald-300">{t('common.token.b3tr')}</div>
+            </div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-300/10 text-emerald-200">
+              <Coins size={19} aria-hidden="true" />
+            </div>
+          </div>
+          <div className="mt-5 flex items-center justify-between gap-3 text-[11px] text-white/50">
+            <div>{poolError ? t('rewards.pool.unavailable') : t('rewards.pool.caption')}</div>
+            <div className="shrink-0 rounded-full border border-white/10 bg-black/20 px-2.5 py-1 uppercase tracking-[0.16em] text-white/45">
+              {pool?.network ?? '—'}
+            </div>
+          </div>
+        </div>
 
         <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-5">
           <div className="text-[10px] tracking-[0.24em] text-white/40">{t('dashboard.claimable')}</div>

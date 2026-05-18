@@ -19,7 +19,13 @@ import {
 import { createS3Client, deleteObject, headObject, presignGetObject, presignPutObject } from './s3.js';
 import { extractDifyReceiptPayload, runDify } from './dify.js';
 import { isUniqueViolation } from './postgres-errors.js';
-import { createOrGetRewardClaimAndSubmit, getRewardsQuote, listRewardClaims, refreshRewardClaimStatus } from './rewards-service.js';
+import {
+  createOrGetRewardClaimAndSubmit,
+  getRewardsPoolStatus,
+  getRewardsQuote,
+  listRewardClaims,
+  refreshRewardClaimStatus
+} from './rewards-service.js';
 import { createRewardsChain } from './vebetterRewards.js';
 import { formatB3trDisplay } from './rewards.js';
 import {
@@ -490,6 +496,18 @@ async function main() {
   });
 
   // --- Rewards (Phase 2) ---
+  app.get('/rewards/pool', { preHandler: authenticate }, async (request: any, reply) => {
+    try {
+      const pool = await getRewardsPoolStatus(rewardsChain);
+      return reply.send({ pool });
+    } catch (err) {
+      const code = err instanceof Error ? err.message : null;
+      if (code === 'rewards_unconfigured') return reply.code(503).send({ error: 'rewards_unconfigured' });
+      request.log.error({ err }, 'rewards_pool_failed');
+      return reply.code(500).send({ error: 'internal_error' });
+    }
+  });
+
   app.get('/rewards/quote', { preHandler: authenticate }, async (request: any, reply) => {
     const { sub: userId } = (request as AuthedRequest).user;
     try {

@@ -17,6 +17,15 @@ export type RewardsQuote = {
   b3tr_amount: string;
 };
 
+export type RewardsPoolStatus = {
+  b3tr_available_funds_wei: string;
+  b3tr_available_funds: string;
+  rewards_pool_address: string;
+  app_id: string;
+  network: 'testnet' | 'mainnet';
+  updated_at: string;
+};
+
 export type RewardsRepo = {
   getUserPointsTotal: (userId: string) => Promise<number>;
   getUserPointsLocked: (userId: string) => Promise<number>;
@@ -109,6 +118,19 @@ export async function getRewardsQuote(repo: RewardsRepo, userId: string): Promis
     conversion_rate_id: rate.id,
     b3tr_amount_wei: b3trWei.toString(),
     b3tr_amount: formatB3trDisplay(b3trWei)
+  };
+}
+
+export async function getRewardsPoolStatus(chain: RewardsChain): Promise<RewardsPoolStatus> {
+  const balance = await chain.getRewardPoolBalance();
+
+  return {
+    b3tr_available_funds_wei: balance.availableFundsWei.toString(),
+    b3tr_available_funds: formatB3trDisplay(balance.availableFundsWei),
+    rewards_pool_address: balance.rewardsPoolAddress,
+    app_id: balance.appId,
+    network: balance.network,
+    updated_at: new Date().toISOString()
   };
 }
 

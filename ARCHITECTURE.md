@@ -116,7 +116,7 @@ File: `apps/web/src/app/App.tsx`
 - `/veworld/callback/:event` -> `VeWorldCallbackPage` (VeWorld mobile Wallet Link connect/signature callback)
 - `/scan` -> `ScanPage` (requires login)
 - `/result/:id` -> `ResultPage` (requires login)
-- `/rewards` -> `RewardsPage` (requires login; points -> B3TR claim UI)
+- `/rewards` -> `RewardsPage` (requires login; points -> B3TR claim UI; shows app-level reward pool available funds)
 
 Auth gating:
 - `apps/web/src/app/components/RequireLogin.tsx` wraps protected routes.
@@ -259,6 +259,7 @@ Account:
 - `GET /account/achievements` (auth) -> `{ achievements, summary }`; each achievement includes semantic `key`, `unlocked`, `multiplier`, optional round ids, and optional GM-NFT `node_name` / `node_level`. API-provided title/description/tag fields are fallback metadata; the web client localizes known achievement keys.
 
 Rewards (Phase 2):
+- `GET /rewards/pool` (auth) -> `{ pool: { b3tr_available_funds_wei, b3tr_available_funds, rewards_pool_address, app_id, network, updated_at } }`
 - `GET /rewards/quote` (auth) -> `{ quote: { points_total, points_locked, points_available, points_per_b3tr, conversion_rate_id, b3tr_amount_wei, b3tr_amount } }`
 - `POST /rewards/claim` (auth) -> `{ claim }`
   - request: `{ client_claim_id: uuid }`
@@ -464,7 +465,8 @@ VeChain wallets (VeWorld / Sync2 / WalletConnect):
 - iOS in-app browser stability: avoid back-to-back signing; wait before typed-data request and pass `{ signer: address }`.
 
 VeChain / VeBetterDAO (Phase 2 rewards):
-- Token distribution uses `X2EarnRewardsPool.distributeRewardDeprecated(...)` on current testnet rewards pool (`X2EARN_REWARDS_POOL_ADDRESS=0x5F8f86B8D0Fa93cdaE20936d150175dF0205fB38`).
+- Token distribution uses `X2EarnRewardsPool.distributeRewardWithProofAndMetadata(...)` on the configured rewards pool (`X2EARN_REWARDS_POOL_ADDRESS`).
+- Reward pool display reads app-level distributable funds from `X2EarnRewardsPool.availableFunds(VEBETTER_APP_ID)`.
 - Gasless claim uses delegated transactions (VIP-191) with a VIP-201 sponsor service URL.
 - Backend is the transaction origin (holds `REWARD_DISTRIBUTOR_PRIVATE_KEY`); users do not sign claim txs.
 

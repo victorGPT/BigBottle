@@ -8,8 +8,12 @@ import type { AppConfig } from './config.js';
 const DISTRIBUTE_REWARD_ABI = [
   'function distributeRewardWithProofAndMetadata(bytes32 appId,uint256 amount,address receiver,string[] proofTypes,string[] proofValues,string[] impactCodes,uint256[] impactValues,string description,string metadata)'
 ];
+const REWARDS_POOL_BALANCE_ABI = [
+  'function availableFunds(bytes32 appId) view returns (uint256)'
+];
 
 const distributeIface = new Interface(DISTRIBUTE_REWARD_ABI);
+const rewardsPoolBalanceIface = new Interface(REWARDS_POOL_BALANCE_ABI);
 
 function isBytes32Hex(value: string): boolean {
   return /^0x[0-9a-fA-F]{64}$/.test(value.trim());
@@ -33,7 +37,9 @@ type RewardsChainConfig = {
   distributorPrivateKey: string;
 };
 
-function requireRewardsChainConfig(config: AppConfig): RewardsChainConfig {
+type RewardsPoolConfig = Pick<RewardsChainConfig, 'network' | 'nodeUrl' | 'appId' | 'rewardsPoolAddress'>;
+
+function requireRewardsPoolConfig(config: AppConfig): RewardsPoolConfig {
   const nodeUrl = config.VECHAIN_NODE_URL ?? defaultNodeUrl(config.VECHAIN_NETWORK);
 
   if (!config.VEBETTER_APP_ID || !isBytes32Hex(config.VEBETTER_APP_ID)) {
@@ -42,6 +48,18 @@ function requireRewardsChainConfig(config: AppConfig): RewardsChainConfig {
   if (!config.X2EARN_REWARDS_POOL_ADDRESS) {
     throw new Error('rewards_unconfigured');
   }
+
+  return {
+    network: config.VECHAIN_NETWORK,
+    nodeUrl,
+    appId: config.VEBETTER_APP_ID,
+    rewardsPoolAddress: getAddress(config.X2EARN_REWARDS_POOL_ADDRESS)
+  };
+}
+
+function requireRewardsChainConfig(config: AppConfig): RewardsChainConfig {
+  const poolConfig = requireRewardsPoolConfig(config);
+
   if (!config.FEE_DELEGATION_URL) {
     throw new Error('rewards_unconfigured');
   }
@@ -50,10 +68,7 @@ function requireRewardsChainConfig(config: AppConfig): RewardsChainConfig {
   }
 
   return {
-    network: config.VECHAIN_NETWORK,
-    nodeUrl,
-    appId: config.VEBETTER_APP_ID,
-    rewardsPoolAddress: getAddress(config.X2EARN_REWARDS_POOL_ADDRESS),
+    ...poolConfig,
     feeDelegationUrl: config.FEE_DELEGATION_URL,
     distributorPrivateKey: config.REWARD_DISTRIBUTOR_PRIVATE_KEY
   };
@@ -85,10 +100,21 @@ export type RewardsChain = {
   signRewardDistributionTx: (input: SignRewardDistributionInput) => Promise<{ txHash: string; rawTx: string }>;
   broadcastRawTransaction: (rawTx: string) => Promise<{ txHash: string }>;
   getTransactionReceipt: (txHash: string) => Promise<TransactionReceipt | null>;
+  getRewardPoolBalance: () => Promise<{
+    availableFundsWei: bigint;
+    appId: string;
+    rewardsPoolAddress: string;
+    network: 'testnet' | 'mainnet';
+  }>;
 };
 
 export function createRewardsChain(config: AppConfig): RewardsChain {
   if (config.REWARDS_MODE === 'mock') {
+    const mockAppId = isBytes32Hex(config.VEBETTER_APP_ID ?? '') ? config.VEBETTER_APP_ID! : `0x${'0'.repeat(64)}`;
+    const mockRewardsPoolAddress = config.X2EARN_REWARDS_POOL_ADDRESS
+      ? getAddress(config.X2EARN_REWARDS_POOL_ADDRESS)
+      : '0x0000000000000000000000000000000000000000';
+
     function mockRawTx(claimId: string): string {
       return `0x${claimId.replace(/-/g, '')}`;
     }
@@ -131,6 +157,15 @@ export function createRewardsChain(config: AppConfig): RewardsChain {
             txID: txHash,
             txOrigin: '0x0000000000000000000000000000000000000000'
           }
+        };
+      },
+
+      async getRewardPoolBalance() {
+        return {
+          availableFundsWei: 1_000n * 10n ** 18n,
+          appId: mockAppId,
+          rewardsPoolAddress: mockRewardsPoolAddress,
+          network: config.VECHAIN_NETWORK
         };
       }
     };
@@ -218,6 +253,37 @@ export function createRewardsChain(config: AppConfig): RewardsChain {
 
     async getTransactionReceipt(txHash: string): Promise<TransactionReceipt | null> {
       return await getThorClient().transactions.getTransactionReceipt(txHash);
+    },
+
+    async getRewardPoolBalance() {
+      const cfg = requireRewardsPoolConfig(config);
+      const data = rewardsPoolBalanceIface.encodeFunctionData('availableFunds', [cfg.appId]);
+      const res = await fetch(`${cfg.nodeUrl}/accounts/*`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          clauses: [{ to: cfg.rewardsPoolAddress, data, value: '0x0' }],
+          caller: '0x0000000000000000000000000000000000000000'
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(`rewards_pool_balance_failed:${res.status}`);
+      }
+
+      const payload = (await res.json()) as Array<{ data?: string; reverted?: boolean; vmError?: string }>;
+      const output = payload?.[0]?.data;
+      if (payload?.[0]?.reverted || !output || output === '0x') {
+        throw new Error(payload?.[0]?.vmError ?? 'rewards_pool_balance_failed');
+      }
+      const decoded = rewardsPoolBalanceIface.decodeFunctionResult('availableFunds', output)[0] as bigint;
+
+      return {
+        availableFundsWei: decoded,
+        appId: cfg.appId,
+        rewardsPoolAddress: cfg.rewardsPoolAddress,
+        network: cfg.network
+      };
     }
   };
 }
