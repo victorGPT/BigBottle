@@ -1284,7 +1284,11 @@ const MAX_METADATA_DRINKS_PER_SOURCE = 3;
 const DISTRIBUTE_REWARD_ABI = [
   "function distributeRewardWithProofAndMetadata(bytes32 appId,uint256 amount,address receiver,string[] proofTypes,string[] proofValues,string[] impactCodes,uint256[] impactValues,string description,string metadata)",
 ];
+const REWARDS_POOL_BALANCE_ABI = [
+  "function availableFunds(bytes32 appId) view returns (uint256)",
+];
 const distributeIface = new Interface(DISTRIBUTE_REWARD_ABI);
+const rewardsPoolBalanceIface = new Interface(REWARDS_POOL_BALANCE_ABI);
 
 type RewardsQuote = {
   points_total: number;
@@ -1294,6 +1298,15 @@ type RewardsQuote = {
   conversion_rate_id: string;
   b3tr_amount_wei: string;
   b3tr_amount: string;
+};
+
+type RewardsPoolStatus = {
+  b3tr_available_funds_wei: string;
+  b3tr_available_funds: string;
+  rewards_pool_address: string;
+  app_id: string;
+  network: "testnet" | "mainnet";
+  updated_at: string;
 };
 
 type SignRewardDistributionInput = {
@@ -1310,6 +1323,12 @@ type RewardsChain = {
   signRewardDistributionTx: (input: SignRewardDistributionInput) => Promise<{ txHash: string; rawTx: string }>;
   broadcastRawTransaction: (rawTx: string) => Promise<{ txHash: string }>;
   getTransactionReceipt: (txHash: string) => Promise<TransactionReceipt | null>;
+  getRewardPoolBalance: () => Promise<{
+    availableFundsWei: bigint;
+    appId: string;
+    rewardsPoolAddress: string;
+    network: "testnet" | "mainnet";
+  }>;
 };
 
 function computeClaimableB3trWei(input: { pointsAvailable: number; pointsPerB3tr: number }): bigint {
@@ -1370,6 +1389,18 @@ async function getRewardsQuote(repo: ReturnType<typeof createRepo>, userId: stri
   };
 }
 
+async function getRewardsPoolStatus(chain: RewardsChain): Promise<RewardsPoolStatus> {
+  const balance = await chain.getRewardPoolBalance();
+  return {
+    b3tr_available_funds_wei: balance.availableFundsWei.toString(),
+    b3tr_available_funds: formatB3trDisplay(balance.availableFundsWei),
+    rewards_pool_address: balance.rewardsPoolAddress,
+    app_id: balance.appId,
+    network: balance.network,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 function summarizeDrinkList(drinkList: unknown): {
   bottleCount: number;
   totalMl: number;
@@ -1425,18 +1456,26 @@ function defaultVechainNodeUrl(network: "testnet" | "mainnet"): string {
   return network === "mainnet" ? "https://mainnet.vechain.org" : "https://testnet.vechain.org";
 }
 
-function requireRewardsChainConfig(config: AppConfig) {
+function requireRewardsPoolConfig(config: AppConfig) {
   const nodeUrl = config.VECHAIN_NODE_URL ?? defaultVechainNodeUrl(config.VECHAIN_NETWORK);
   if (!config.VEBETTER_APP_ID || !isBytes32Hex(config.VEBETTER_APP_ID)) throw new Error("rewards_unconfigured");
   if (!config.X2EARN_REWARDS_POOL_ADDRESS) throw new Error("rewards_unconfigured");
+  return {
+    nodeUrl,
+    appId: config.VEBETTER_APP_ID,
+    rewardsPoolAddress: getAddress(config.X2EARN_REWARDS_POOL_ADDRESS),
+    network: config.VECHAIN_NETWORK,
+  };
+}
+
+function requireRewardsChainConfig(config: AppConfig) {
+  const poolConfig = requireRewardsPoolConfig(config);
   if (!config.FEE_DELEGATION_URL) throw new Error("rewards_unconfigured");
   if (!config.REWARD_DISTRIBUTOR_PRIVATE_KEY || !isPrivateKeyHex(config.REWARD_DISTRIBUTOR_PRIVATE_KEY)) {
     throw new Error("rewards_unconfigured");
   }
   return {
-    nodeUrl,
-    appId: config.VEBETTER_APP_ID,
-    rewardsPoolAddress: getAddress(config.X2EARN_REWARDS_POOL_ADDRESS),
+    ...poolConfig,
     feeDelegationUrl: config.FEE_DELEGATION_URL,
     distributorPrivateKey: config.REWARD_DISTRIBUTOR_PRIVATE_KEY,
   };
@@ -1449,6 +1488,10 @@ async function sha256Hex(input: string): Promise<string> {
 
 function createRewardsChain(config: AppConfig): RewardsChain {
   if (config.REWARDS_MODE === "mock") {
+    const mockAppId = isBytes32Hex(config.VEBETTER_APP_ID ?? "") ? config.VEBETTER_APP_ID! : `0x${"0".repeat(64)}`;
+    const mockRewardsPoolAddress = config.X2EARN_REWARDS_POOL_ADDRESS
+      ? getAddress(config.X2EARN_REWARDS_POOL_ADDRESS)
+      : "0x0000000000000000000000000000000000000000";
     const mockRawTx = (claimId: string) => `0x${claimId.replace(/-/g, "")}`;
     return {
       async signRewardDistributionTx(input) {
@@ -1479,6 +1522,14 @@ function createRewardsChain(config: AppConfig): RewardsChain {
             txID: txHash,
             txOrigin: "0x0000000000000000000000000000000000000000",
           },
+        };
+      },
+      async getRewardPoolBalance() {
+        return {
+          availableFundsWei: 1_000n * 10n ** 18n,
+          appId: mockAppId,
+          rewardsPoolAddress: mockRewardsPoolAddress,
+          network: config.VECHAIN_NETWORK,
         };
       },
     };
@@ -1551,6 +1602,31 @@ function createRewardsChain(config: AppConfig): RewardsChain {
     },
     async getTransactionReceipt(txHash) {
       return await getThorClient().transactions.getTransactionReceipt(txHash);
+    },
+    async getRewardPoolBalance() {
+      const cfg = requireRewardsPoolConfig(config);
+      const data = rewardsPoolBalanceIface.encodeFunctionData("availableFunds", [cfg.appId]);
+      const res = await fetch(`${cfg.nodeUrl}/accounts/*`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          clauses: [{ to: cfg.rewardsPoolAddress, data, value: "0x0" }],
+          caller: "0x0000000000000000000000000000000000000000",
+        }),
+      });
+      if (!res.ok) throw new Error(`rewards_pool_balance_failed:${res.status}`);
+      const payload = (await res.json()) as Array<{ data?: string; reverted?: boolean; vmError?: string }>;
+      const output = payload?.[0]?.data;
+      if (payload?.[0]?.reverted || !output || output === "0x") {
+        throw new Error(payload?.[0]?.vmError ?? "rewards_pool_balance_failed");
+      }
+      const decoded = rewardsPoolBalanceIface.decodeFunctionResult("availableFunds", output)[0] as bigint;
+      return {
+        availableFundsWei: decoded,
+        appId: cfg.appId,
+        rewardsPoolAddress: cfg.rewardsPoolAddress,
+        network: cfg.network,
+      };
     },
   };
 }
@@ -2213,6 +2289,20 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
   }
 
   // --- Rewards ---
+  if (req.method === "GET" && ctx.routePath === "/rewards/pool") {
+    const authed = await requireAuth(config, req);
+    if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    try {
+      const pool = await getRewardsPoolStatus(getRewardsChain());
+      return jsonResponse(config, req, 200, { pool });
+    } catch (err) {
+      const code = err instanceof Error ? err.message : null;
+      if (code === "rewards_unconfigured") return errorResponse(config, req, 503, "rewards_unconfigured");
+      console.error("rewards_pool_failed", err);
+      return errorResponse(config, req, 500, "internal_error");
+    }
+  }
+
   if (req.method === "GET" && ctx.routePath === "/rewards/quote") {
     const authed = await requireAuth(config, req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
