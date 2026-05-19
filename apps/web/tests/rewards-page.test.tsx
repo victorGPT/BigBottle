@@ -130,7 +130,7 @@ describe('RewardsPage', () => {
     );
 
     expect(screen.getByText('Claimable')).toBeInTheDocument();
-    expect(await screen.findByText('Reward pool')).toBeInTheDocument();
+    expect(await screen.findByText('Claimable pool')).toBeInTheDocument();
     expect(screen.getByText('1,234.5678')).toBeInTheDocument();
     expect(await screen.findByText('1.5')).toBeInTheDocument();
     expect(screen.getByText(/Exchange rate/)).toBeInTheDocument();
