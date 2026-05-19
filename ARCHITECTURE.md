@@ -318,6 +318,7 @@ On `rejected`, backend best-effort deletes the receipt image from S3.
 File: `supabase/functions/api/index.ts`
 - Deno runtime Edge Function
 - Mirrors the local Fastify routes under `apps/api` for Phase 1 and Phase 2
+- Implements the production `/rewards/pool` chain read route for app reward pool balance display
 - Uses its own JWT (`JWT_SECRET`) and does not rely on Supabase Auth
 
 Config:
