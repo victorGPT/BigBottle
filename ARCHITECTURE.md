@@ -116,7 +116,7 @@ File: `apps/web/src/app/App.tsx`
 - `/veworld/callback/:event` -> `VeWorldCallbackPage` (VeWorld mobile Wallet Link connect/signature callback)
 - `/scan` -> `ScanPage` (requires login)
 - `/result/:id` -> `ResultPage` (requires login)
-- `/rewards` -> `RewardsPage` (requires login; points -> B3TR claim UI; shows app-level reward pool available funds)
+- `/rewards` -> `RewardsPage` (requires login; points -> B3TR claim UI; shows the B3TR reward distribution pool available for user claims)
 
 Auth gating:
 - `apps/web/src/app/components/RequireLogin.tsx` wraps protected routes.
@@ -318,7 +318,7 @@ On `rejected`, backend best-effort deletes the receipt image from S3.
 File: `supabase/functions/api/index.ts`
 - Deno runtime Edge Function
 - Mirrors the local Fastify routes under `apps/api` for Phase 1 and Phase 2
-- Implements the production `/rewards/pool` chain read route for app reward pool balance display
+- Implements the production `/rewards/pool` chain read route for reward distribution pool balance display
 - Uses its own JWT (`JWT_SECRET`) and does not rely on Supabase Auth
 
 Config:
@@ -467,7 +467,7 @@ VeChain wallets (VeWorld / Sync2 / WalletConnect):
 
 VeChain / VeBetterDAO (Phase 2 rewards):
 - Token distribution uses `X2EarnRewardsPool.distributeRewardWithProofAndMetadata(...)` on the configured rewards pool (`X2EARN_REWARDS_POOL_ADDRESS`).
-- Reward pool display reads app-level distributable funds from `X2EarnRewardsPool.availableFunds(VEBETTER_APP_ID)`.
+- Reward pool display reads the user-claim distribution pool from `X2EarnRewardsPool.rewardsPoolBalance(VEBETTER_APP_ID)`.
 - Gasless claim uses delegated transactions (VIP-191) with a VIP-201 sponsor service URL.
 - Backend is the transaction origin (holds `REWARD_DISTRIBUTOR_PRIVATE_KEY`); users do not sign claim txs.
 
