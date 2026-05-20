@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { Interface } from 'ethers';
+import { describe, expect, it, vi } from 'vitest';
 
 import { computeClaimableB3trWei } from './rewards.js';
 import { createOrGetRewardClaimAndSubmit, getRewardsPoolStatus } from './rewards-service.js';
+import { createRewardsChain } from './vebetterRewards.js';
+import type { AppConfig } from './config.js';
 import type { DbReceiptSubmission, DbRewardClaim, DbRewardConversionRate } from './supabase.js';
 
 function rewardClaim(overrides: Partial<DbRewardClaim> = {}): DbRewardClaim {
@@ -297,7 +300,7 @@ describe('rewards', () => {
     expect(metadata.sources.items[0].drinks).toHaveLength(3);
   });
 
-  it('formats reward pool available funds from chain status', async () => {
+  it('formats reward distribution pool balance from chain status', async () => {
     const pool = await getRewardsPoolStatus({
       signRewardDistributionTx: async () => ({ txHash: '0x', rawTx: '0x' }),
       broadcastRawTransaction: async () => ({ txHash: '0x' }),
@@ -316,5 +319,44 @@ describe('rewards', () => {
     expect(pool.rewards_pool_address).toBe('0x0000000000000000000000000000000000000001');
     expect(pool.network).toBe('mainnet');
     expect(Date.parse(pool.updated_at)).not.toBeNaN();
+  });
+
+  it('reads the user-claim distribution pool balance from rewardsPoolBalance', async () => {
+    const appId = `0x${'1'.repeat(64)}`;
+    const rewardsPoolAddress = '0x0000000000000000000000000000000000000001';
+    const iface = new Interface(['function rewardsPoolBalance(bytes32 appId) view returns (uint256)']);
+    let requestBody: any = null;
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        requestBody = JSON.parse(String((init as RequestInit).body));
+        return new Response(
+          JSON.stringify([
+            {
+              data: iface.encodeFunctionResult('rewardsPoolBalance', [1_090n * 10n ** 18n])
+            }
+          ]),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      })
+    );
+
+    const chain = createRewardsChain({
+      REWARDS_MODE: 'chain',
+      VECHAIN_NETWORK: 'mainnet',
+      VECHAIN_NODE_URL: 'https://mainnet.vechain.org',
+      VEBETTER_APP_ID: appId,
+      X2EARN_REWARDS_POOL_ADDRESS: rewardsPoolAddress
+    } as AppConfig);
+
+    const balance = await chain.getRewardPoolBalance();
+
+    expect(requestBody.clauses[0].to).toBe(rewardsPoolAddress);
+    expect(requestBody.clauses[0].data.slice(0, 10)).toBe(iface.getFunction('rewardsPoolBalance')!.selector);
+    expect(balance.availableFundsWei).toBe(1_090n * 10n ** 18n);
+    expect(balance.appId).toBe(appId);
+    expect(balance.rewardsPoolAddress).toBe(rewardsPoolAddress);
+    expect(balance.network).toBe('mainnet');
   });
 });

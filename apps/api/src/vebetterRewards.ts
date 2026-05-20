@@ -9,7 +9,7 @@ const DISTRIBUTE_REWARD_ABI = [
   'function distributeRewardWithProofAndMetadata(bytes32 appId,uint256 amount,address receiver,string[] proofTypes,string[] proofValues,string[] impactCodes,uint256[] impactValues,string description,string metadata)'
 ];
 const REWARDS_POOL_BALANCE_ABI = [
-  'function availableFunds(bytes32 appId) view returns (uint256)'
+  'function rewardsPoolBalance(bytes32 appId) view returns (uint256)'
 ];
 
 const distributeIface = new Interface(DISTRIBUTE_REWARD_ABI);
@@ -257,7 +257,7 @@ export function createRewardsChain(config: AppConfig): RewardsChain {
 
     async getRewardPoolBalance() {
       const cfg = requireRewardsPoolConfig(config);
-      const data = rewardsPoolBalanceIface.encodeFunctionData('availableFunds', [cfg.appId]);
+      const data = rewardsPoolBalanceIface.encodeFunctionData('rewardsPoolBalance', [cfg.appId]);
       const res = await fetch(`${cfg.nodeUrl}/accounts/*`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -276,7 +276,7 @@ export function createRewardsChain(config: AppConfig): RewardsChain {
       if (payload?.[0]?.reverted || !output || output === '0x') {
         throw new Error(payload?.[0]?.vmError ?? 'rewards_pool_balance_failed');
       }
-      const decoded = rewardsPoolBalanceIface.decodeFunctionResult('availableFunds', output)[0] as bigint;
+      const decoded = rewardsPoolBalanceIface.decodeFunctionResult('rewardsPoolBalance', output)[0] as bigint;
 
       return {
         availableFundsWei: decoded,
