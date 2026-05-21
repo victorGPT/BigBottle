@@ -126,6 +126,8 @@ const locale = {
     "scan.progress.label": "レシート処理の進捗",
     "scan.estimate": "約 10 秒",
     "result.title": "結果",
+    "result.processingTitle": "レシートを検出中",
+    "result.processingBody": "レシートを確認しています。結果はここに自動で表示されます。",
     "result.receiptUsedTitle": "使用済みレシート",
     "result.receiptUsedBody": "このレシートはすでに使用済みのため、再度リワードを獲得できません。",
     "result.details": "詳細",

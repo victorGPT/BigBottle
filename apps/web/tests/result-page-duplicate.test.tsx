@@ -1,12 +1,13 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ResultPage from '../src/app/pages/ResultPage';
 
 const mocks = vi.hoisted(() => {
   return {
     navigate: vi.fn(),
-    apiGet: vi.fn()
+    apiGet: vi.fn(),
+    apiPost: vi.fn()
   };
 });
 
@@ -30,11 +31,18 @@ vi.mock('../src/state/auth', () => {
 
 vi.mock('../src/util/api', () => {
   return {
-    apiGet: (...args: unknown[]) => mocks.apiGet(...args)
+    apiGet: (...args: unknown[]) => mocks.apiGet(...args),
+    apiPost: (...args: unknown[]) => mocks.apiPost(...args)
   };
 });
 
 describe('ResultPage', () => {
+  beforeEach(() => {
+    mocks.navigate.mockReset();
+    mocks.apiGet.mockReset();
+    mocks.apiPost.mockReset();
+  });
+
   it('shows the receipt points audit breakdown', async () => {
     mocks.apiGet.mockResolvedValue({
       submission: {
@@ -107,5 +115,55 @@ describe('ResultPage', () => {
 
     expect(await screen.findByText('Legacy receipt · final points only')).toBeInTheDocument();
     expect(screen.getByText('+42')).toBeInTheDocument();
+  });
+
+  it('shows processing state while receipt verification is still running', async () => {
+    mocks.apiGet.mockResolvedValue({
+      submission: {
+        id: 'sub-1',
+        status: 'verifying',
+        points_total: 0,
+        dify_drink_list: null,
+        rejection_code: null,
+        duplicate_of: null,
+        created_at: new Date().toISOString()
+      }
+    });
+
+    render(<ResultPage />);
+
+    expect(await screen.findByText('Detecting receipt')).toBeInTheDocument();
+    expect(screen.getByText('We are checking the receipt. Results will appear here automatically.')).toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it('starts verification from an uploaded result page state', async () => {
+    mocks.apiGet.mockResolvedValue({
+      submission: {
+        id: 'sub-1',
+        status: 'uploaded',
+        points_total: 0,
+        dify_drink_list: null,
+        rejection_code: null,
+        duplicate_of: null,
+        created_at: new Date().toISOString()
+      }
+    });
+    mocks.apiPost.mockResolvedValue({
+      submission: {
+        id: 'sub-1',
+        status: 'verifying',
+        points_total: 0,
+        dify_drink_list: null,
+        rejection_code: null,
+        duplicate_of: null,
+        created_at: new Date().toISOString()
+      }
+    });
+
+    render(<ResultPage />);
+
+    expect(await screen.findByText('Detecting receipt')).toBeInTheDocument();
+    expect(mocks.apiPost).toHaveBeenCalledWith('/submissions/sub-1/verify', {}, 'token');
   });
 });

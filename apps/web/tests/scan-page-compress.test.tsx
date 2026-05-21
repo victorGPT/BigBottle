@@ -48,6 +48,13 @@ describe('ScanPage', () => {
     mocks.compressReceiptImage.mockReset();
     mocks.fetch.mockReset();
     vi.stubGlobal('fetch', mocks.fetch);
+    vi.stubGlobal(
+      'URL',
+      Object.assign(URL, {
+        createObjectURL: vi.fn(() => 'blob:receipt-preview'),
+        revokeObjectURL: vi.fn()
+      })
+    );
   });
 
   it('retries upload with acl header when first put returns 403', async () => {
@@ -170,6 +177,7 @@ describe('ScanPage', () => {
     fireEvent.change(input, { target: { files: [original] } });
 
     expect(await screen.findByText('Optimizing...')).toBeInTheDocument();
+    expect(document.querySelector('img[src="blob:receipt-preview"]')).toBeInTheDocument();
 
     await waitFor(() => {
       expect(mocks.compressReceiptImage).toHaveBeenCalledTimes(1);
@@ -195,4 +203,3 @@ describe('ScanPage', () => {
     });
   });
 });
-

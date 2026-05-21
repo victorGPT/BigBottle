@@ -33,61 +33,73 @@ export default function ScanPage() {
   const { state } = useAuth();
   const token = state.status === 'logged_in' ? state.token : null;
 
-  const verifyProgressTimerRef = useRef<number | null>(null);
+  const progressTimerRef = useRef<number | null>(null);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [phase, setPhase] = useState<'idle' | 'compressing' | 'uploading' | 'verifying' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [progressValue, setProgressValue] = useState<number>(0);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  const stopVerifyProgressTimer = useCallback(() => {
-    if (verifyProgressTimerRef.current == null) return;
-    window.clearInterval(verifyProgressTimerRef.current);
-    verifyProgressTimerRef.current = null;
+  const stopProgressTimer = useCallback(() => {
+    if (progressTimerRef.current == null) return;
+    window.clearInterval(progressTimerRef.current);
+    progressTimerRef.current = null;
   }, []);
 
   useEffect(() => {
-    if (phase !== 'verifying') {
-      stopVerifyProgressTimer();
+    const spec =
+      phase === 'compressing'
+        ? { startMs: Date.now(), durationMs: 1_200, startValue: 8, endValue: 34 }
+        : phase === 'uploading'
+          ? { startMs: Date.now(), durationMs: 3_000, startValue: 40, endValue: 58 }
+          : phase === 'verifying'
+            ? { startMs: Date.now(), durationMs: 10_000, startValue: 62, endValue: 95 }
+            : null;
+
+    if (!spec) {
+      stopProgressTimer();
       return;
     }
 
-    const startMs = Date.now();
-    const durationMs = 10_000;
-    const startValue = 60;
-    const endValue = 95;
-
-    stopVerifyProgressTimer();
-    verifyProgressTimerRef.current = window.setInterval(() => {
-      const elapsedMs = Date.now() - startMs;
-      const t = Math.min(1, elapsedMs / durationMs);
+    stopProgressTimer();
+    setProgressValue((v) => (spec.startValue > v ? spec.startValue : v));
+    progressTimerRef.current = window.setInterval(() => {
+      const elapsedMs = Date.now() - spec.startMs;
+      const t = Math.min(1, elapsedMs / spec.durationMs);
 
       // Ease out so it feels responsive early, but doesn't look stuck at the end.
       const eased = 1 - Math.pow(1 - t, 3);
-      const next = Math.round(startValue + eased * (endValue - startValue));
+      const next = Math.round(spec.startValue + eased * (spec.endValue - spec.startValue));
 
       setProgressValue((v) => (next > v ? next : v));
 
-      if (t >= 1) stopVerifyProgressTimer();
+      if (t >= 1) stopProgressTimer();
     }, 200);
 
-    return stopVerifyProgressTimer;
-  }, [phase, stopVerifyProgressTimer]);
+    return stopProgressTimer;
+  }, [phase, stopProgressTimer]);
+
+  useEffect(() => {
+    return () => {
+      stopProgressTimer();
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl, stopProgressTimer]);
 
   async function uploadAndVerify(file: File) {
     if (!token) throw new Error('unauthorized');
 
-    stopVerifyProgressTimer();
+    stopProgressTimer();
     setProgressValue(0);
 
     setError(null);
     setPhase('compressing');
-    setProgressValue(12);
     const compressed = await compressReceiptImage(file);
     const uploadFile = compressed.file;
+    setProgressValue(36);
 
     setPhase('uploading');
-    setProgressValue(40);
 
     const clientSubmissionId = crypto.randomUUID();
     const init = await apiPost<InitResponse>(
@@ -95,6 +107,7 @@ export default function ScanPage() {
       { client_submission_id: clientSubmissionId, content_type: uploadFile.type || 'application/octet-stream' },
       token
     );
+    setProgressValue(48);
 
     if (init.upload) {
       const tryUpload = async (headers: Record<string, string>) => {
@@ -116,14 +129,15 @@ export default function ScanPage() {
 
       if (!res.ok) throw new Error(`upload_failed:${res.status}`);
     }
+    setProgressValue(56);
 
     await apiPost(`/submissions/${init.submission.id}/complete`, {}, token);
 
     setPhase('verifying');
-    setProgressValue(60);
+    setProgressValue(62);
     await apiPost(`/submissions/${init.submission.id}/verify`, {}, token);
 
-    stopVerifyProgressTimer();
+    stopProgressTimer();
     setProgressValue(100);
 
     nav(`/result/${init.submission.id}`, { replace: true });
@@ -131,10 +145,15 @@ export default function ScanPage() {
 
   async function onFileSelected(file: File | null) {
     if (!file) return;
+    const nextPreviewUrl = URL.createObjectURL(file);
+    setPreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return nextPreviewUrl;
+    });
     try {
       await uploadAndVerify(file);
     } catch (e) {
-      stopVerifyProgressTimer();
+      stopProgressTimer();
       setProgressValue(0);
       setPhase('error');
       setError(e instanceof Error ? e.message : String(e));
@@ -178,7 +197,16 @@ export default function ScanPage() {
         </div>
 
         <div className="mt-6 flex-1">
-          <div className="relative mx-auto aspect-[3/4] w-full rounded-2xl border border-emerald-200/30 bg-black/20 p-4">
+          <div className="relative mx-auto aspect-[3/4] w-full overflow-hidden rounded-2xl border border-emerald-200/30 bg-black/20 p-4">
+            {previewUrl && (
+              <img
+                src={previewUrl}
+                alt=""
+                className="absolute inset-0 h-full w-full object-contain"
+                aria-hidden="true"
+              />
+            )}
+            {previewUrl && <div className="absolute inset-0 bg-black/35" aria-hidden="true" />}
             <div className="absolute inset-4 rounded-xl border border-emerald-200/40" />
             <div className="absolute left-8 top-8 h-5 w-5 border-l-2 border-t-2 border-emerald-200/70" />
             <div className="absolute right-8 top-8 h-5 w-5 border-r-2 border-t-2 border-emerald-200/70" />

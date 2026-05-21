@@ -9,6 +9,10 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "bridge": "node dist/temporal-bridge.js",
+    "bridge:dev": "tsx src/temporal-bridge.ts",
+    "worker": "node dist/temporal-worker.js",
+    "worker:dev": "tsx src/temporal-worker.ts",
     "sync:vebetter-nodes": "tsx src/vebetter-node-sync.ts"
   },
   "dependencies": {
@@ -17,6 +21,10 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/jwt": "^10.0.0",
     "@supabase/supabase-js": "^2.57.4",
+    "@temporalio/client": "^1.16.2",
+    "@temporalio/common": "^1.16.2",
+    "@temporalio/worker": "^1.16.2",
+    "@temporalio/workflow": "^1.16.2",
     "@vechain/sdk-core": "^2.0.7",
     "@vechain/sdk-network": "^2.0.7",
     "dotenv": "^16.6.1",

@@ -10,21 +10,35 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import {
   createClient,
   type SupabaseClient,
-} from "npm:@supabase/supabase-js@2.57.4";
-import { AwsClient } from "npm:aws4fetch@1.0.20";
-import { getAddress, getBytes, Interface, formatUnits, verifyTypedData } from "npm:ethers@6.15.0";
-import { SignJWT, jwtVerify } from "npm:jose@5.2.4";
-import { Address, Transaction } from "npm:@vechain/sdk-core@2.0.7";
+} from "https://esm.sh/@supabase/supabase-js@2.57.4?target=deno";
+import { AwsClient } from "https://esm.sh/aws4fetch@1.0.20?target=deno";
+import { getAddress, getBytes, Interface, formatUnits, verifyTypedData } from "https://esm.sh/ethers@6.15.0?target=deno";
+import { SignJWT, jwtVerify } from "https://esm.sh/jose@5.2.4?target=deno";
+import { Address, Transaction } from "https://esm.sh/@vechain/sdk-core@2.0.7?target=deno";
 import {
   ProviderInternalBaseWallet,
   ThorClient,
   VeChainProvider,
   type TransactionReceipt,
-} from "npm:@vechain/sdk-network@2.0.7";
+} from "https://esm.sh/@vechain/sdk-network@2.0.7?target=deno";
 
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
 type HttpHandler = (req: Request, ctx: { routePath: string }) => Promise<Response>;
+
+declare const EdgeRuntime:
+  | {
+      waitUntil: (promise: Promise<unknown>) => void;
+    }
+  | undefined;
+
+function runInBackground(task: Promise<unknown>): void {
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+    EdgeRuntime.waitUntil(task);
+    return;
+  }
+  task.catch((err) => console.error("background_task_failed", err));
+}
 
 type AppConfig = {
   CORS_ORIGIN: string;
@@ -478,25 +492,6 @@ function createRepo(supabase: SupabaseClient) {
         .select("*")
         .single();
       return ensureOk(res, "Failed to update submission") as DbReceiptSubmission;
-    },
-
-    // Self-heal: rescue submissions wedged in `verifying` past a sane upper
-    // bound (verify P99 < 30s). Caused once by a platform-level Deno runtime
-    // regression that killed the function below the JS exception boundary,
-    // leaving orphans the catch block could not clean up. Cheap O(N≈0) sweep
-    // executed from /submissions/init so it runs on the upload path itself,
-    // bounded by daily submission limits.
-    async sweepStuckVerifying(olderThanMinutes = 5): Promise<void> {
-      const cutoff = new Date(Date.now() - olderThanMinutes * 60_000).toISOString();
-      await supabase
-        .from("receipt_submissions")
-        .update({
-          status: "rejected",
-          rejection_code: "verify_timeout",
-          verified_at: new Date().toISOString(),
-        })
-        .eq("status", "verifying")
-        .lt("created_at", cutoff);
     },
 
     async computeReceiptFingerprint(input: {
@@ -1176,7 +1171,7 @@ function isUniqueViolation(err: unknown): boolean {
   return getPostgresErrorCode(err) === "23505";
 }
 
-const DAILY_SUCCESSFUL_RECEIPT_LIMIT = 3;
+const DAILY_SUCCESSFUL_RECEIPT_LIMIT = 1;
 const DAILY_TOTAL_UPLOAD_LIMIT = 6;
 
 function getUtcDayWindow(date = new Date()): { startIso: string; endIso: string } {
@@ -1220,7 +1215,7 @@ type DifyDrinkItem = {
 
 const MAX_ITEMS = 25;
 const MAX_AMOUNT = 20;
-const MAX_TOTAL_POINTS = 500;
+const MAX_TOTAL_POINTS = 20;
 
 function clampInt(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -2021,7 +2016,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
   if (req.method === "GET" && ctx.routePath === "/health/s3") {
     const s3 = getS3();
-    const key = `healthchecks/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.txt`;
+    const key = `uploads/healthchecks/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.txt`;
     const url = s3ObjectUrl({ region: config.AWS_REGION, bucket: config.S3_BUCKET, key });
 
     try {
@@ -2386,11 +2381,6 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     const repo = getRepo();
     const s3 = getS3();
 
-    // Best-effort sweep of verify-stage orphans before accepting new work.
-    repo.sweepStuckVerifying().catch((err) =>
-      console.warn("sweep_stuck_verifying_failed", String(err)),
-    );
-
     const body = await readJson(req);
     if (!isRecord(body)) return errorResponse(config, req, 400, "invalid_body");
     const clientSubmissionId = parseUuid(body.client_submission_id);
@@ -2618,11 +2608,12 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       return jsonResponse(config, req, 200, { submission: fresh });
     }
 
-    let updatedForLog: DbReceiptSubmission | null = null;
-    let imageBytesForLog: number | null = null;
-    let errorForLog: { message: string; code: string | null } | null = null;
+    const verifyInBackground = async () => {
+      let updatedForLog: DbReceiptSubmission | null = null;
+      let imageBytesForLog: number | null = null;
+      let errorForLog: { message: string; code: string | null } | null = null;
 
-    try {
+      try {
       const tHead = performance.now();
       const meta = await headObject({
         s3,
@@ -2632,8 +2623,8 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       });
       timing.s3_head_ms = Math.round(performance.now() - tHead);
       if (!meta) {
-        const reset = await repo.updateSubmission(claimed.id, { status: "pending_upload" });
-        return jsonResponse(config, req, 409, { error: "upload_incomplete", submission: reset });
+        updatedForLog = await repo.updateSubmission(claimed.id, { status: "pending_upload" });
+        return;
       }
       imageBytesForLog = meta.contentLength;
 
@@ -2684,7 +2675,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           });
         }
         updatedForLog = updated;
-        return jsonResponse(config, req, 200, { submission: updated });
+        return;
       }
 
       if (typeof payload.user_id === "string") {
@@ -2791,7 +2782,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
             rejection_code: null,
             duplicate_of: null,
           });
-          return errorResponse(config, req, 429, "daily_verified_limit_exceeded");
+          return;
         } else {
           throw err;
         }
@@ -2817,7 +2808,6 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         }
       }
       updatedForLog = updated;
-      return jsonResponse(config, req, 200, { submission: updated });
     } catch (err) {
       console.error("verification_failed", err);
       errorForLog = {
@@ -2856,7 +2846,6 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           message: deleteErr instanceof Error ? deleteErr.message : String(deleteErr),
         });
       }
-      return jsonResponse(config, req, 200, { submission: updated });
     } finally {
       timing.total_ms = Math.round(performance.now() - verifyStart);
       console.info("bb_verify_timing", {
@@ -2870,6 +2859,18 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         dify_mode: config.DIFY_MODE,
       });
     }
+    };
+
+    runInBackground(
+      verifyInBackground().catch((err) => {
+        console.error("verification_background_unhandled", {
+          submission_id: claimed.id,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }),
+    );
+
+    return jsonResponse(config, req, 200, { submission: claimed });
   }
 
   if (req.method === "GET" && ctx.routePath === "/submissions") {

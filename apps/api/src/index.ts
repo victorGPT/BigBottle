@@ -17,8 +17,8 @@ import {
   resolveBonusMultiplier
 } from './scoring.js';
 import { createS3Client, deleteObject, headObject, presignGetObject, presignPutObject } from './s3.js';
-import { extractDifyReceiptPayload, runDify } from './dify.js';
-import { isUniqueViolation } from './postgres-errors.js';
+import { extractReceiptAnalyzerPayload, runReceiptAnalyzer } from './receipt-analyzer.js';
+import { getPostgresErrorCode, isUniqueViolation } from './postgres-errors.js';
 import {
   createOrGetRewardClaimAndSubmit,
   getRewardsPoolStatus,
@@ -765,12 +765,19 @@ async function main() {
       return reply.send({ submission: fresh });
     }
 
-    try {
+    const verifyInBackground = async () => {
+      const verifyStart = performance.now();
+      let updatedForLog: any = null;
+      let imageBytesForLog: number | null = null;
+      let errorForLog: { message: string; code: string | null } | null = null;
+
+      try {
       const meta = await headObject({ s3, bucket: claimed.image_bucket, key: claimed.image_key });
       if (!meta) {
-        const reset = await repo.updateSubmission(claimed.id, { status: 'pending_upload' });
-        return reply.code(409).send({ error: 'upload_incomplete', submission: reset });
+        updatedForLog = await repo.updateSubmission(claimed.id, { status: 'pending_upload' });
+        return;
       }
+      imageBytesForLog = meta.contentLength;
 
       const getUrl = await presignGetObject({
         s3,
@@ -779,8 +786,12 @@ async function main() {
         expiresInSeconds: Math.max(60, config.S3_PRESIGN_EXPIRES_SECONDS)
       });
 
-      const difyRaw = await runDify(config, { imageUrl: getUrl.url, userRef: wallet });
-      const payload = extractDifyReceiptPayload(difyRaw);
+      const difyRaw = await runReceiptAnalyzer(config, {
+        imageUrl: getUrl.url,
+        userRef: wallet,
+        submissionId: claimed.id
+      });
+      const payload = extractReceiptAnalyzerPayload(difyRaw);
 
       if (!payload) {
         const updated = await repo.updateSubmission(claimed.id, {
@@ -800,7 +811,8 @@ async function main() {
             's3_delete_rejected_image_failed'
           );
         }
-        return reply.send({ submission: updated });
+        updatedForLog = updated;
+        return;
       }
 
       if (typeof payload.user_id === 'string') {
@@ -904,7 +916,7 @@ async function main() {
             rejection_code: null,
             duplicate_of: null
           });
-          return reply.code(429).send({ error: 'daily_verified_limit_exceeded' });
+          return;
         } else {
           throw err;
         }
@@ -920,9 +932,13 @@ async function main() {
           );
         }
       }
-      return reply.send({ submission: updated });
+      updatedForLog = updated;
     } catch (err) {
       request.log.error({ err }, 'verification_failed');
+      errorForLog = {
+        message: err instanceof Error ? err.message : String(err),
+        code: getPostgresErrorCode(err)
+      };
       const updated = await repo.updateSubmission(claimed.id, {
         status: 'rejected',
         dify_raw: {
@@ -936,6 +952,7 @@ async function main() {
         points_total: 0,
         verified_at: new Date().toISOString()
       });
+      updatedForLog = updated;
       try {
         await deleteObject({ s3, bucket: updated.image_bucket, key: updated.image_key });
       } catch (deleteErr) {
@@ -944,8 +961,28 @@ async function main() {
           's3_delete_rejected_image_failed'
         );
       }
-      return reply.send({ submission: updated });
+    } finally {
+      request.log.info(
+        {
+          submission_id: claimed.id,
+          user_id: userId,
+          status: updatedForLog?.status ?? null,
+          points_total: updatedForLog?.points_total ?? null,
+          image_bytes: imageBytesForLog,
+          duration_ms: Math.round(performance.now() - verifyStart),
+          error: errorForLog,
+          analyzer_provider: config.RECEIPT_ANALYZER_PROVIDER
+        },
+        'bb_verify_background_done'
+      );
     }
+    };
+
+    void verifyInBackground().catch((err) => {
+      request.log.error({ err, submissionId: claimed.id }, 'verification_background_unhandled');
+    });
+
+    return reply.send({ submission: claimed });
   });
 
   app.get('/submissions', { preHandler: authenticate }, async (request: any, reply) => {

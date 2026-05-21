@@ -6,7 +6,7 @@ export type DifyDrinkItem = {
 
 const MAX_ITEMS = 25;
 const MAX_AMOUNT = 20;
-const MAX_TOTAL_POINTS = 500;
+const MAX_TOTAL_POINTS = 20;
 
 function clampInt(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
