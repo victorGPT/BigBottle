@@ -183,8 +183,8 @@ Flow:
 2. Init submission: `POST /submissions/init` (idempotent per `client_submission_id`).
 3. Upload to S3 with the presigned PUT URL (if provided).
 4. Mark complete: `POST /submissions/:id/complete`.
-5. Verify: `POST /submissions/:id/verify`.
-6. Navigate to `GET /result/:id` screen.
+5. Start background verification: `POST /submissions/:id/verify`.
+6. Navigate to `GET /result/:id` screen while `uploaded` / `verifying` submissions show a processing state.
 
 ### Receipt Result UI
 File: `apps/web/src/app/pages/ResultPage.tsx`
@@ -292,8 +292,10 @@ Submissions:
   - request: `{ client_submission_id: uuid, content_type: string }`
 - `POST /submissions/:id/complete` (auth) -> `{ submission }`
 - `POST /submissions/:id/verify` (auth) -> `{ submission }`
+  - Claims `uploaded -> verifying`, schedules receipt analysis in the background, and returns immediately with the current submission state.
 - `GET /submissions` (auth) -> `{ submissions }`
 - `GET /submissions/:id` (auth) -> `{ submission }`
+  - Clients poll this route while status is `uploaded` or `verifying`.
 - Successful receipt limit: each user can have at most 1 `status='verified'` receipt submission per UTC day. Extra successful verifications return `daily_verified_limit_exceeded`; failed, duplicate, rejected, or not-claimable submissions do not count as successful receipts.
 
 Health:

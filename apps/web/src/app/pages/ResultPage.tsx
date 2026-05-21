@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import Screen from '../components/Screen';
 import { useAuth } from '../../state/auth';
-import { apiGet } from '../../util/api';
+import { apiGet, apiPost } from '../../util/api';
 import {
   formatMultiplierValue,
   getGmNftLevelName,
@@ -40,6 +40,10 @@ function toDisplayNumber(value: unknown, fallback: number): number {
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
+function isProcessingStatus(status: string): boolean {
+  return status === 'uploaded' || status === 'verifying';
+}
+
 function bonusSourceLabel(source: { type?: unknown; multiplier?: unknown; name?: unknown; level?: unknown }, t: Translate): string {
   const multiplier = formatMultiplierValue(toDisplayNumber(source.multiplier, 1), t);
   if (source.type === 'gm_nft') {
@@ -64,12 +68,30 @@ export default function ResultPage() {
 
   useEffect(() => {
     let cancelled = false;
+    let pollTimer: number | null = null;
+    let verifyStarted = false;
+
     async function run() {
       if (!token || !id) return;
       setError(null);
       try {
         const res = await apiGet<{ submission: Submission }>(`/submissions/${id}`, token);
-        if (!cancelled) setSubmission(res.submission);
+        if (cancelled) return;
+
+        let nextSubmission = res.submission;
+        setSubmission(nextSubmission);
+
+        if (nextSubmission.status === 'uploaded' && !verifyStarted) {
+          verifyStarted = true;
+          const verifyRes = await apiPost<{ submission: Submission }>(`/submissions/${id}/verify`, {}, token);
+          if (cancelled) return;
+          nextSubmission = verifyRes.submission;
+          setSubmission(nextSubmission);
+        }
+
+        if (isProcessingStatus(nextSubmission.status)) {
+          pollTimer = window.setTimeout(run, 2_000);
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
@@ -77,6 +99,7 @@ export default function ResultPage() {
     run();
     return () => {
       cancelled = true;
+      if (pollTimer != null) window.clearTimeout(pollTimer);
     };
   }, [id, token]);
 
@@ -108,6 +131,47 @@ export default function ResultPage() {
   const basePoints = toDisplayNumber(submission.points_base, totalPoints);
   const multiplier = toDisplayNumber(submission.points_multiplier, 1);
   const rejectionCode = submission.rejection_code;
+
+  if (isProcessingStatus(status)) {
+    return (
+      <Screen>
+        <div className="mx-auto flex min-h-dvh max-w-[420px] flex-col px-5 pb-10 pt-10">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => nav('/')}
+              className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white/80"
+              aria-label={t('common.back')}
+            >
+              ←
+            </button>
+            <div className="text-xs font-semibold tracking-[0.22em] text-white/80">{t('result.title')}</div>
+            <button
+              type="button"
+              onClick={() => nav('/')}
+              className="h-9 w-9 rounded-full border border-white/10 bg-white/5 text-white/70"
+              aria-label={t('common.close')}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
+            <div className="grid h-28 w-28 place-items-center rounded-full border border-emerald-300/35 bg-emerald-300/10">
+              <div className="h-12 w-12 animate-spin rounded-full border-2 border-emerald-200/20 border-t-emerald-200" />
+            </div>
+            <div className="mt-6 text-sm font-semibold tracking-[0.22em]">{t('result.processingTitle')}</div>
+            <div className="mt-2 max-w-[320px] text-xs text-white/55">{t('result.processingBody')}</div>
+            {error && (
+              <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                {error}
+              </div>
+            )}
+          </div>
+        </div>
+      </Screen>
+    );
+  }
 
   if (status === 'rejected' && rejectionCode === 'duplicate_receipt') {
     return (

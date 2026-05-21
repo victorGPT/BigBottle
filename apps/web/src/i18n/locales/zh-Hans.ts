@@ -126,6 +126,8 @@ const locale = {
     "scan.progress.label": "小票处理进度",
     "scan.estimate": "预计约 10 秒",
     "result.title": "结果",
+    "result.processingTitle": "正在识别小票",
+    "result.processingBody": "我们正在核验小票，结果会自动出现在这里。",
     "result.receiptUsedTitle": "小票已使用",
     "result.receiptUsedBody": "该小票已被使用，无法重复领取积分。",
     "result.details": "详情",

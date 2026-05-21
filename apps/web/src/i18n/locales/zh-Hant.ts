@@ -126,6 +126,8 @@ const locale = {
     "scan.progress.label": "發票處理進度",
     "scan.estimate": "約 10 秒",
     "result.title": "結果",
+    "result.processingTitle": "正在辨識發票",
+    "result.processingBody": "我們正在核驗發票，結果會自動顯示在這裡。",
     "result.receiptUsedTitle": "發票已使用",
     "result.receiptUsedBody": "該發票已被使用，無法重複領取積分。",
     "result.details": "詳情",

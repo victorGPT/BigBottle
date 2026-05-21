@@ -124,6 +124,8 @@ const en = {
     "scan.progress.label": "Receipt processing progress",
     "scan.estimate": "About 10 seconds",
     "result.title": "Results",
+    "result.processingTitle": "Detecting receipt",
+    "result.processingBody": "We are checking the receipt. Results will appear here automatically.",
     "result.receiptUsedTitle": "Receipt already used",
     "result.receiptUsedBody": "This receipt has already been used and cannot earn rewards again.",
     "result.details": "Details",

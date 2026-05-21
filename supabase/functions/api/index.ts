@@ -26,6 +26,20 @@ type Json = Record<string, unknown> | unknown[] | string | number | boolean | nu
 
 type HttpHandler = (req: Request, ctx: { routePath: string }) => Promise<Response>;
 
+declare const EdgeRuntime:
+  | {
+      waitUntil: (promise: Promise<unknown>) => void;
+    }
+  | undefined;
+
+function runInBackground(task: Promise<unknown>): void {
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+    EdgeRuntime.waitUntil(task);
+    return;
+  }
+  task.catch((err) => console.error("background_task_failed", err));
+}
+
 type AppConfig = {
   CORS_ORIGIN: string;
   JWT_SECRET: string;
@@ -2504,11 +2518,12 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       return jsonResponse(config, req, 200, { submission: fresh });
     }
 
-    let updatedForLog: DbReceiptSubmission | null = null;
-    let imageBytesForLog: number | null = null;
-    let errorForLog: { message: string; code: string | null } | null = null;
+    const verifyInBackground = async () => {
+      let updatedForLog: DbReceiptSubmission | null = null;
+      let imageBytesForLog: number | null = null;
+      let errorForLog: { message: string; code: string | null } | null = null;
 
-    try {
+      try {
       const tHead = performance.now();
       const meta = await headObject({
         s3,
@@ -2518,8 +2533,8 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       });
       timing.s3_head_ms = Math.round(performance.now() - tHead);
       if (!meta) {
-        const reset = await repo.updateSubmission(claimed.id, { status: "pending_upload" });
-        return jsonResponse(config, req, 409, { error: "upload_incomplete", submission: reset });
+        updatedForLog = await repo.updateSubmission(claimed.id, { status: "pending_upload" });
+        return;
       }
       imageBytesForLog = meta.contentLength;
 
@@ -2570,7 +2585,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           });
         }
         updatedForLog = updated;
-        return jsonResponse(config, req, 200, { submission: updated });
+        return;
       }
 
       if (typeof payload.user_id === "string") {
@@ -2677,7 +2692,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
             rejection_code: null,
             duplicate_of: null,
           });
-          return errorResponse(config, req, 429, "daily_verified_limit_exceeded");
+          return;
         } else {
           throw err;
         }
@@ -2703,7 +2718,6 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         }
       }
       updatedForLog = updated;
-      return jsonResponse(config, req, 200, { submission: updated });
     } catch (err) {
       console.error("verification_failed", err);
       errorForLog = {
@@ -2742,7 +2756,6 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           message: deleteErr instanceof Error ? deleteErr.message : String(deleteErr),
         });
       }
-      return jsonResponse(config, req, 200, { submission: updated });
     } finally {
       timing.total_ms = Math.round(performance.now() - verifyStart);
       console.info("bb_verify_timing", {
@@ -2756,6 +2769,18 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         dify_mode: config.DIFY_MODE,
       });
     }
+    };
+
+    runInBackground(
+      verifyInBackground().catch((err) => {
+        console.error("verification_background_unhandled", {
+          submission_id: claimed.id,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }),
+    );
+
+    return jsonResponse(config, req, 200, { submission: claimed });
   }
 
   if (req.method === "GET" && ctx.routePath === "/submissions") {
