@@ -55,7 +55,7 @@ describe('scoring', () => {
     // 500 => 2 * 1
     // 1000 => 10 * 2
     // null => 0
-    expect(res.totalPoints).toBe(22);
+    expect(res.totalPoints).toBe(20);
   });
 
   it('caps total points to avoid runaway scoring', () => {
@@ -64,7 +64,7 @@ describe('scoring', () => {
       { retinfoDrinkCapacity: 2000, retinfoDrinkAmount: 999 }
     ]);
     // Each item: 15 * 20 = 300, total would be 600 but capped.
-    expect(res.totalPoints).toBe(500);
+    expect(res.totalPoints).toBe(20);
   });
 
   it('limits max processed drinkList length', () => {

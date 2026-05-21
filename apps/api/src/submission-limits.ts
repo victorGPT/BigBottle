@@ -1,4 +1,4 @@
-export const DAILY_SUCCESSFUL_RECEIPT_LIMIT = 3;
+export const DAILY_SUCCESSFUL_RECEIPT_LIMIT = 1;
 export const DAILY_TOTAL_UPLOAD_LIMIT = 6;
 
 export type DayWindow = {

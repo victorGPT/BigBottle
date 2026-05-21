@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { getUtcDayWindow, isDailyLimitError } from './submission-limits.js';
+import { DAILY_SUCCESSFUL_RECEIPT_LIMIT, getUtcDayWindow, isDailyLimitError } from './submission-limits.js';
 
 describe('submission limits', () => {
+  it('allows only one successful receipt per UTC day', () => {
+    expect(DAILY_SUCCESSFUL_RECEIPT_LIMIT).toBe(1);
+  });
+
   it('computes UTC calendar-day windows', () => {
     expect(getUtcDayWindow(new Date('2026-05-08T15:30:00.000Z'))).toEqual({
       startIso: '2026-05-08T00:00:00.000Z',

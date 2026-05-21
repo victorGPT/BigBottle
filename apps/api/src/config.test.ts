@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { loadConfig } from './config.js';
+import { loadConfig, loadTemporalWorkerConfig } from './config.js';
 
 function baseEnv(): NodeJS.ProcessEnv {
   return {
@@ -40,6 +40,34 @@ describe('loadConfig', () => {
     ).toThrow();
   });
 
+  it('accepts Temporal analyzer config without Dify workflow fields', () => {
+    const cfg = loadConfig({
+      ...baseEnv(),
+      RECEIPT_ANALYZER_PROVIDER: 'temporal',
+      DIFY_MODE: 'workflow',
+      DIFY_API_URL: '',
+      DIFY_API_KEY: '',
+      DIFY_WORKFLOW_ID: '',
+      TEMPORAL_ADDRESS: 'temporal.example.com:7233',
+      TEMPORAL_NAMESPACE: 'bigbottle.prod',
+      TEMPORAL_TASK_QUEUE: 'receipt-worker',
+      TEMPORAL_WORKFLOW_TYPE: 'receiptVerificationWorkflow',
+      TEMPORAL_TLS: 'true',
+      TEMPORAL_API_KEY: 'temporal-api-key'
+    });
+
+    expect(cfg.RECEIPT_ANALYZER_PROVIDER).toBe('temporal');
+    expect(cfg.DIFY_API_URL).toBeUndefined();
+    expect(cfg.TEMPORAL_ADDRESS).toBe('temporal.example.com:7233');
+    expect(cfg.TEMPORAL_NAMESPACE).toBe('bigbottle.prod');
+    expect(cfg.TEMPORAL_TASK_QUEUE).toBe('receipt-worker');
+    expect(cfg.TEMPORAL_WORKFLOW_TYPE).toBe('receiptVerificationWorkflow');
+    expect(cfg.TEMPORAL_TLS).toBe(true);
+    expect(cfg.TEMPORAL_API_KEY).toBe('temporal-api-key');
+    expect(cfg.GEMINI_MODEL).toBe('gemini-2.5-flash');
+    expect(cfg.GEMINI_API_BASE_URL).toBe('https://generativelanguage.googleapis.com');
+  });
+
   it('parses optional current effective round id when positive integer', () => {
     const cfg = loadConfig({
       ...baseEnv(),
@@ -58,5 +86,17 @@ describe('loadConfig', () => {
         VEBETTER_CURRENT_EFFECTIVE_ROUND_ID: '0'
       })
     ).toThrow();
+  });
+
+  it('loads Temporal worker config without API-only env vars', () => {
+    const cfg = loadTemporalWorkerConfig({
+      GEMINI_API_KEY: 'gemini-key',
+      TEMPORAL_TLS: '1'
+    });
+
+    expect(cfg.GEMINI_API_KEY).toBe('gemini-key');
+    expect(cfg.TEMPORAL_ADDRESS).toBe('localhost:7233');
+    expect(cfg.TEMPORAL_NAMESPACE).toBe('default');
+    expect(cfg.TEMPORAL_TLS).toBe(true);
   });
 });

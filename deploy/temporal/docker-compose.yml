@@ -1,0 +1,71 @@
+services:
+  temporal-postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD:?TEMPORAL_POSTGRES_PASSWORD is required}
+      POSTGRES_DB: temporal
+    volumes:
+      - temporal_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -d temporal"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    restart: unless-stopped
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_POSTGRES_PASSWORD:?TEMPORAL_POSTGRES_PASSWORD is required}
+      POSTGRES_SEEDS: temporal-postgres
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    restart: unless-stopped
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://18.176.28.203:8085
+    ports:
+      - "127.0.0.1:8085:8080"
+
+  bigbottle-temporal-bridge:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile.temporal
+    restart: unless-stopped
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: bigbottle-receipt-verification
+      TEMPORAL_WORKFLOW_TYPE: receiptVerificationWorkflow
+      TEMPORAL_WORKFLOW_TIMEOUT_MS: 120000
+      TEMPORAL_TLS: "false"
+      ANALYZER_BRIDGE_PORT: 8084
+      ANALYZER_BRIDGE_API_KEY: ${ANALYZER_BRIDGE_API_KEY:-}
+      RECEIPT_MODEL_PROVIDER: ${RECEIPT_MODEL_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_API_BASE_URL: https://generativelanguage.googleapis.com
+      GEMINI_TIMEOUT_MS: 30000
+      GEMINI_MAX_IMAGE_BYTES: 10485760
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+      SILICONFLOW_MODEL: ${SILICONFLOW_MODEL:-Qwen/Qwen3.6-35B-A3B}
+      SILICONFLOW_API_BASE_URL: ${SILICONFLOW_API_BASE_URL:-https://api.siliconflow.cn/v1}
+      SILICONFLOW_TIMEOUT_MS: 30000
+    ports:
+      - "8084:8084"
+
+volumes:
+  temporal_postgres_data:

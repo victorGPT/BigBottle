@@ -17,7 +17,7 @@ import {
   resolveBonusMultiplier
 } from './scoring.js';
 import { createS3Client, deleteObject, headObject, presignGetObject, presignPutObject } from './s3.js';
-import { extractDifyReceiptPayload, runDify } from './dify.js';
+import { extractReceiptAnalyzerPayload, runReceiptAnalyzer } from './receipt-analyzer.js';
 import { isUniqueViolation } from './postgres-errors.js';
 import {
   createOrGetRewardClaimAndSubmit,
@@ -779,8 +779,12 @@ async function main() {
         expiresInSeconds: Math.max(60, config.S3_PRESIGN_EXPIRES_SECONDS)
       });
 
-      const difyRaw = await runDify(config, { imageUrl: getUrl.url, userRef: wallet });
-      const payload = extractDifyReceiptPayload(difyRaw);
+      const difyRaw = await runReceiptAnalyzer(config, {
+        imageUrl: getUrl.url,
+        userRef: wallet,
+        submissionId: claimed.id
+      });
+      const payload = extractReceiptAnalyzerPayload(difyRaw);
 
       if (!payload) {
         const updated = await repo.updateSubmission(claimed.id, {

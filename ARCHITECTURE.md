@@ -22,7 +22,7 @@ Runtime components:
   - Production gateway: Supabase Edge Function (`supabase/functions/api`)
 - Data store: Supabase Postgres (`supabase/migrations`)
 - Object store: AWS S3 (receipt images)
-- Receipt extraction/verification: Dify (mock or workflow)
+- Receipt extraction/verification: receipt analyzer provider (`dify` or `temporal`)
 - Wallet login: VeChain Kit (`@vechain/vechain-kit`) with VeWorld / Sync2 / WalletConnect (typed-data signature)
 
 High-level flow:
@@ -234,10 +234,30 @@ File: `apps/api/src/config.ts`
 - `AWS_REGION`
 - `S3_BUCKET`
 - `S3_PRESIGN_EXPIRES_SECONDS` (default `300`)
+- `RECEIPT_ANALYZER_PROVIDER` (`dify` or `temporal`, default `dify`)
 - `DIFY_MODE` (`mock` or `workflow`, default `workflow`)
 - `DIFY_API_URL` / `DIFY_API_KEY` / `DIFY_WORKFLOW_ID` (required when `DIFY_MODE=workflow`)
 - `DIFY_IMAGE_INPUT_KEY` (default `image_url`)
 - `DIFY_TIMEOUT_MS` (default `20000`)
+- `TEMPORAL_ADDRESS` (default `localhost:7233`)
+- `TEMPORAL_NAMESPACE` (default `default`)
+- `TEMPORAL_TASK_QUEUE` (default `bigbottle-receipt-verification`)
+- `TEMPORAL_WORKFLOW_TYPE` (default `receiptVerificationWorkflow`)
+- `TEMPORAL_WORKFLOW_TIMEOUT_MS` (default `20000`)
+- `TEMPORAL_TLS` (default `false`)
+- `TEMPORAL_API_KEY` (optional)
+- `RECEIPT_MODEL_PROVIDER` (`gemini` or `siliconflow`, default `gemini`)
+- `GEMINI_API_KEY` (required for `apps/api` Temporal worker)
+- `GEMINI_MODEL` (default `gemini-2.5-flash`)
+- `GEMINI_API_BASE_URL` (default `https://generativelanguage.googleapis.com`)
+- `GEMINI_TIMEOUT_MS` (default `20000`)
+- `GEMINI_MAX_IMAGE_BYTES` (default `10485760`)
+- `SILICONFLOW_API_KEY` (required when `RECEIPT_MODEL_PROVIDER=siliconflow`)
+- `SILICONFLOW_MODEL` (default `Qwen/Qwen3.6-35B-A3B`)
+- `SILICONFLOW_API_BASE_URL` (default `https://api.siliconflow.cn/v1`)
+- `SILICONFLOW_TIMEOUT_MS` (default `30000`)
+- `ANALYZER_BRIDGE_PORT` (default `8084`)
+- `ANALYZER_BRIDGE_API_KEY` (optional bearer token for the Dify-compatible Temporal bridge)
 
 Phase 2 (Rewards / On-chain B3TR claim):
 - `REWARDS_MODE` (`chain` or `mock`, default `chain`)
@@ -274,6 +294,7 @@ Submissions:
 - `POST /submissions/:id/verify` (auth) -> `{ submission }`
 - `GET /submissions` (auth) -> `{ submissions }`
 - `GET /submissions/:id` (auth) -> `{ submission }`
+- Successful receipt limit: each user can have at most 1 `status='verified'` receipt submission per UTC day. Extra successful verifications return `daily_verified_limit_exceeded`; failed, duplicate, rejected, or not-claimable submissions do not count as successful receipts.
 
 Health:
 - `GET /health` -> `{ ok: true }`
@@ -282,6 +303,17 @@ Rewards implementation (Phase 2):
 - `apps/api/src/rewards-service.ts`: quote + idempotent claim orchestration
 - `apps/api/src/vebetterRewards.ts`: VeChain delegated tx signing/broadcast + receipt polling
 - `apps/api/src/rewards.ts`: points -> B3TR conversion helpers
+
+Receipt analyzer implementation:
+- `apps/api/src/receipt-analyzer.ts`: provider boundary for receipt extraction/verification; selects Dify or Temporal based on `RECEIPT_ANALYZER_PROVIDER`.
+- `apps/api/src/dify.ts`: Dify workflow client plus payload extraction compatibility for `{ data: { outputs } }` responses.
+- `apps/api/src/temporal-receipt-analyzer.ts`: Temporal client path; starts `TEMPORAL_WORKFLOW_TYPE` on `TEMPORAL_TASK_QUEUE` with `{ imageUrl, userRef, submissionId }` and expects the same receipt payload shape as Dify.
+- `apps/api/src/temporal-worker.ts`: AWS/Node worker entrypoint; run `pnpm -C apps/api build && pnpm -C apps/api worker`.
+- `apps/api/src/temporal-bridge.ts`: Dify-compatible HTTP bridge; runs a Temporal worker in-process and exposes `POST /v1/workflows/run` for the existing Supabase Edge Function integration path.
+- `apps/api/src/temporal-workflows.ts`: exports `receiptVerificationWorkflow`.
+- `apps/api/src/receipt-analysis-activities.ts`: activity implementation; fetches the presigned receipt image, calls the configured receipt model provider with the receipt-extraction prompt, adds `timeThreshold`, and returns the Dify-compatible payload.
+- `apps/api/Dockerfile.temporal`: container image for the bridge/worker process.
+- `deploy/temporal/docker-compose.yml`: EC2 Docker Compose stack for Temporal Postgres, Temporal server, Temporal UI bound to localhost, and the BigBottle Dify-compatible Temporal bridge on port `8084`.
 
 ### Idempotency and State Machine
 Per brief: `docs/plans/2026-02-06-mvp-receipt-verification-brief.md`
@@ -303,6 +335,7 @@ File: `apps/api/src/scoring.ts`
 - `parseAmount(input: unknown): number`
 - `pointsForCapacityMl(capacityMl: number | null): number`
 - `computeTotalPoints(drinkList: unknown): { totalPoints: number, items: ... }`
+- Base receipt scoring is capped at 20 points before bonus multipliers are applied.
 
 ### Storage Policy
 On `rejected`, backend best-effort deletes the receipt image from S3.
@@ -416,6 +449,16 @@ Constraints:
 - `points_base >= 0`
 - `points_multiplier >= 1`
 - `points_bonus_sources` must be a JSON array
+
+### `supabase/migrations/202605180001_daily_successful_receipt_limit.sql`
+- Replaces `public.bb_enforce_daily_receipt_submission_limits()` so each user can have at most 1 successful `status='verified'` receipt submission per UTC day.
+- Keeps the existing daily total upload attempt limit at 6.
+
+### `supabase/migrations/202605180002_receipt_base_points_cap.sql`
+- Adds a `points_base <= 20` database constraint for new/updated receipt submissions. The constraint is `not valid` so historical rows above the cap remain auditable while future writes are blocked.
+
+### `supabase/migrations/202605180003_reprice_unsettled_receipt_points.sql`
+- Reprices existing verified receipt submissions that have not been attached to a `pending`, `submitted`, or `confirmed` reward claim source. These unsettled receipts are recalculated with `points_base <= 20` while preserving their stored multiplier.
 
 ### `supabase/migrations/20260208_z_account_summary.sql`
 Functions:
