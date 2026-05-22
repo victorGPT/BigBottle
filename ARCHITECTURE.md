@@ -285,6 +285,7 @@ Rewards (Phase 2):
 - `GET /rewards/quote` (auth) -> `{ quote: { points_total, points_locked, points_available, points_per_b3tr, conversion_rate_id, b3tr_amount_wei, b3tr_amount } }`
 - `POST /rewards/claim` (auth) -> `{ claim }`
   - request: `{ client_claim_id: uuid }`
+  - On-chain broadcast failure marks the persisted claim `failed` with `failure_reason` so points are released for a later claim attempt.
 - `GET /rewards/claims` (auth) -> `{ claims }`
 - `GET /rewards/claims/:id` (auth) -> `{ claim }` (best-effort receipt refresh)
   - 503 error: `rewards_unconfigured` (may include missing env var names as `rewards_unconfigured:<CSV>`)
@@ -328,6 +329,7 @@ Per brief: `docs/plans/2026-02-06-mvp-receipt-verification-brief.md`
 Rewards claim idempotency:
 - `client_claim_id` is the idempotency key (unique per user)
 - At most one in-flight claim per user (`pending`/`submitted`)
+- Reward transactions persist `tx_hash` and `raw_tx` before broadcast; if broadcast is rejected, the claim transitions to `failed` instead of remaining `submitted`.
 
 ### Points and Dedup
 Per briefs:
@@ -349,7 +351,7 @@ On `rejected`, backend best-effort deletes the receipt image from S3.
 - `apps/api/src/scoring.test.ts`: scoring boundaries and parsing
 - `apps/api/src/config.test.ts`: env validation
 - `apps/api/src/s3.test.ts`: presign/head/delete helpers
-- `apps/api/src/rewards.test.ts`: points -> B3TR conversion helpers
+- `apps/api/src/rewards.test.ts`: points -> B3TR conversion helpers, reward pool balance reads, and reward claim broadcast failure handling
 
 ## Supabase Edge Function API Gateway (`supabase/functions/api`)
 
@@ -357,6 +359,7 @@ File: `supabase/functions/api/index.ts`
 - Deno runtime Edge Function
 - Mirrors the local Fastify routes under `apps/api` for Phase 1 and Phase 2
 - Implements the production `/rewards/pool` chain read route for reward distribution pool balance display
+- Mirrors reward claim broadcast failure handling from `apps/api`: persisted claims are marked `failed` when raw transaction broadcast is rejected.
 - Uses its own JWT (`JWT_SECRET`) and does not rely on Supabase Auth
 
 Config:

@@ -289,13 +289,9 @@ export async function createOrGetRewardClaimAndSubmit(input: {
       failure_reason: null
     });
 
-    try {
-      const sent = await chain.broadcastRawTransaction(rawTx);
-      if (sent.txHash && sent.txHash !== submitted.tx_hash) {
-        submitted = await repo.updateRewardClaim(claim.id, { tx_hash: sent.txHash });
-      }
-    } catch {
-      // Best-effort: even if broadcasting fails, the raw tx is persisted and can be re-sent.
+    const sent = await chain.broadcastRawTransaction(rawTx);
+    if (sent.txHash && sent.txHash !== submitted.tx_hash) {
+      submitted = await repo.updateRewardClaim(claim.id, { tx_hash: sent.txHash });
     }
 
     return submitted;
