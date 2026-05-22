@@ -24,7 +24,7 @@ export async function runDify(config: AppConfig, input: { imageUrl: string; user
       ],
       retinfoIsAvaild: 'true',
       retinfoReceiptTime: '2026-02-04 08:52:00',
-      timeThreshold: 'false',
+      timeThreshold: 'true',
       user_id: input.userRef
     };
   }

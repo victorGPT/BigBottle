@@ -1802,7 +1802,7 @@ async function runDify(config: AppConfig, input: { imageUrl: string; userRef: st
       ],
       retinfoIsAvaild: "true",
       retinfoReceiptTime: "2026-02-04 08:52:00",
-      timeThreshold: "false",
+      timeThreshold: "true",
       user_id: input.userRef,
     };
   }
@@ -2704,7 +2704,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       const retinfoIsAvaild = normalizeBoolString(retinfoIsAvaildRaw);
       const timeThreshold = normalizeBoolString(timeThresholdRaw);
 
-      const ok = retinfoIsAvaild === "true" && timeThreshold === "false";
+      const ok = retinfoIsAvaild === "true" && timeThreshold === "true";
       const { totalPoints: basePoints } = computeTotalPoints(payload.drinkList);
       const bonusSnapshot =
         ok && basePoints > 0

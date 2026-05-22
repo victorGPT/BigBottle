@@ -156,9 +156,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function computeReceiptTimeThreshold(receiptTime: unknown, now = new Date()): 'true' | 'false' {
-  if (typeof receiptTime !== 'string') return 'true';
+  if (typeof receiptTime !== 'string') return 'false';
   const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(receiptTime);
-  if (!match) return 'true';
+  if (!match) return 'false';
 
   const [, yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw] = match;
   const year = Number(yearRaw);
@@ -177,13 +177,13 @@ export function computeReceiptTimeThreshold(receiptTime: unknown, now = new Date
     parsed.getMinutes() !== minute ||
     parsed.getSeconds() !== second
   ) {
-    return 'true';
+    return 'false';
   }
 
   const earliestAllowed = now.getTime() - 7 * 24 * 60 * 60 * 1000;
   const latestAllowed = now.getTime() + 12 * 60 * 60 * 1000;
   const receiptMs = parsed.getTime();
-  return receiptMs >= earliestAllowed && receiptMs <= latestAllowed ? 'false' : 'true';
+  return receiptMs >= earliestAllowed && receiptMs <= latestAllowed ? 'true' : 'false';
 }
 
 function stripJsonFence(text: string): string {

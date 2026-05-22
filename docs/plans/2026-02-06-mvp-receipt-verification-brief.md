@@ -46,7 +46,7 @@ Dify returns JSON shaped like:
   ],
   "retinfoIsAvaild": "true",
   "retinfoReceiptTime": "2026-02-04 08:52:00",
-  "timeThreshold": "false",
+  "timeThreshold": "true",
   "user_id": "d44f909f-98ac-42ba-a87b-94dbee61bcb4"
 }
 ```
@@ -54,7 +54,7 @@ Dify returns JSON shaped like:
 Semantics:
 
 - `retinfoIsAvaild`: string `"true"` or `"false"`
-- `timeThreshold`: string `"false"` means within validity window; `"true"` means out of window
+- `timeThreshold`: string `"true"` means within validity window; `"false"` means out of window
 - `user_id` is not trusted for auth. Auth identity comes from VeWorld login only.
 
 ## Verification Rules
@@ -62,7 +62,7 @@ Semantics:
 A submission is considered:
 
 - `verified` only when:
-  - `retinfoIsAvaild === "true"` AND `timeThreshold === "false"`
+  - `retinfoIsAvaild === "true"` AND `timeThreshold === "true"`
 - otherwise `rejected`
 
 If `verified` but `total_points === 0`, the status is `not_claimable` (valid receipt, no rewardable info).
