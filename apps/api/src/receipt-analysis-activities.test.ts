@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   computeReceiptTimeThreshold,
   parseGeminiReceiptPayload,
-  parseOpenAIChatReceiptPayload
+  parseOpenAIChatReceiptPayload,
+  RECEIPT_ANALYSIS_PROMPT,
+  RECEIPT_ANALYSIS_PROMPT_PREVIOUS,
+  RECEIPT_ANALYSIS_USER_TEXT,
+  RECEIPT_ANALYSIS_USER_TEXT_PREVIOUS
 } from './receipt-analysis-activities.js';
 
 describe('receipt analysis activities', () => {
@@ -63,5 +67,24 @@ describe('receipt analysis activities', () => {
         retinfoDrinkAmount: 1
       }
     ]);
+  });
+
+  it('keeps the compact prompt shorter than the previous production prompt', () => {
+    const currentTextLength = RECEIPT_ANALYSIS_PROMPT.length + RECEIPT_ANALYSIS_USER_TEXT.length;
+    const previousTextLength = RECEIPT_ANALYSIS_PROMPT_PREVIOUS.length + RECEIPT_ANALYSIS_USER_TEXT_PREVIOUS.length;
+
+    expect(currentTextLength).toBeLessThan(previousTextLength);
+  });
+
+  it('keeps the compact prompt pinned to the receipt output contract', () => {
+    expect(RECEIPT_ANALYSIS_PROMPT).toContain('retinfoIsAvaild');
+    expect(RECEIPT_ANALYSIS_PROMPT).toContain('retinfoReceiptTime');
+    expect(RECEIPT_ANALYSIS_PROMPT).toContain('retinfoDrinkName');
+    expect(RECEIPT_ANALYSIS_PROMPT).toContain('retinfoDrinkCapacity');
+    expect(RECEIPT_ANALYSIS_PROMPT).toContain('retinfoDrinkAmount');
+    expect(RECEIPT_ANALYSIS_PROMPT).toContain('YYYY-MM-DD HH:MM:SS');
+    expect(RECEIPT_ANALYSIS_PROMPT).toContain('currency');
+    expect(RECEIPT_ANALYSIS_PROMPT).toContain('handwritten');
+    expect(RECEIPT_ANALYSIS_PROMPT).toContain('empty drinkList');
   });
 });
