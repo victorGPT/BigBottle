@@ -63,6 +63,8 @@ const EnvSchema = z
     ),
     GEMINI_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
     GEMINI_MAX_IMAGE_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
+    RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE: z.coerce.number().int().positive().default(1024),
+    RECEIPT_MODEL_IMAGE_JPEG_QUALITY: z.coerce.number().int().min(1).max(100).default(78),
     SILICONFLOW_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
     SILICONFLOW_MODEL: z.preprocess(emptyToUndefined, z.string().min(1).default('Qwen/Qwen3.6-35B-A3B')),
     SILICONFLOW_API_BASE_URL: z.preprocess(
@@ -135,6 +137,8 @@ const TemporalWorkerEnvSchema = z.object({
   ),
   GEMINI_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
   GEMINI_MAX_IMAGE_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
+  RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE: z.coerce.number().int().positive().default(1024),
+  RECEIPT_MODEL_IMAGE_JPEG_QUALITY: z.coerce.number().int().min(1).max(100).default(78),
   SILICONFLOW_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   SILICONFLOW_MODEL: z.preprocess(emptyToUndefined, z.string().min(1).default('Qwen/Qwen3.6-35B-A3B')),
   SILICONFLOW_API_BASE_URL: z.preprocess(

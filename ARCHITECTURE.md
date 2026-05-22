@@ -252,6 +252,8 @@ File: `apps/api/src/config.ts`
 - `GEMINI_API_BASE_URL` (default `https://generativelanguage.googleapis.com`)
 - `GEMINI_TIMEOUT_MS` (default `20000`)
 - `GEMINI_MAX_IMAGE_BYTES` (default `10485760`)
+- `RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE` (default `1024`)
+- `RECEIPT_MODEL_IMAGE_JPEG_QUALITY` (default `78`)
 - `SILICONFLOW_API_KEY` (required when `RECEIPT_MODEL_PROVIDER=siliconflow`)
 - `SILICONFLOW_MODEL` (default `Qwen/Qwen3.6-35B-A3B`)
 - `SILICONFLOW_API_BASE_URL` (default `https://api.siliconflow.cn/v1`)
@@ -313,8 +315,8 @@ Receipt analyzer implementation:
 - `apps/api/src/temporal-worker.ts`: AWS/Node worker entrypoint; run `pnpm -C apps/api build && pnpm -C apps/api worker`.
 - `apps/api/src/temporal-bridge.ts`: Dify-compatible HTTP bridge; runs a Temporal worker in-process and exposes `POST /v1/workflows/run` for the existing Supabase Edge Function integration path.
 - `apps/api/src/temporal-workflows.ts`: exports `receiptVerificationWorkflow`.
-- `apps/api/src/receipt-analysis-activities.ts`: activity implementation; fetches the presigned receipt image, calls the configured receipt model provider with the compact receipt-extraction prompt, adds `timeThreshold`, and returns the Dify-compatible payload. It also exports the previous production prompt for regression/eval comparison.
-- `apps/api/src/receipt-prompt-eval.ts`: local prompt comparison runner. Use `pnpm -C apps/api prompt:eval <receipt-image-path>` with `SILICONFLOW_API_KEY` to compare previous vs current prompt token usage and extracted fields on the same image.
+- `apps/api/src/receipt-analysis-activities.ts`: activity implementation; fetches the presigned receipt image, normalizes it into a bounded JPEG for model input, calls the configured receipt model provider with the compact receipt-extraction prompt, logs model/image usage metrics, adds `timeThreshold`, and returns the Dify-compatible payload. It also exports the previous production prompt for regression/eval comparison.
+- `apps/api/src/receipt-prompt-eval.ts`: local prompt and image-size comparison runner. Use `pnpm -C apps/api prompt:eval <receipt-image-path> [--edges=1600,1280,1024,768]` with `SILICONFLOW_API_KEY` to compare previous vs current prompt token usage, resized-image token/cost usage, and extracted fields on the same image.
 - `apps/api/Dockerfile.temporal`: container image for the bridge/worker process.
 - `deploy/temporal/docker-compose.yml`: EC2 Docker Compose stack for Temporal Postgres, Temporal server, Temporal UI bound to localhost, and the BigBottle Dify-compatible Temporal bridge on port `8084`.
 
