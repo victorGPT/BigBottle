@@ -115,7 +115,8 @@ Reject with {"retinfoIsAvaild":"false"} if any condition is true:
 - receipt time is unreadable
 - currency unit/symbol is RP, Rp, or Rp.
 
-If valid, extract every beverage item, including water, tea, soda, coffee, alcohol, juice, and similar drinks. A valid receipt with no beverage items still returns an empty drinkList.
+If no beverage items are present, reject with {"retinfoIsAvaild":"false"}.
+If valid, extract every beverage item, including water, tea, soda, coffee, alcohol, juice, and similar drinks.
 
 Success JSON:
 {"drinkList":[{"retinfoDrinkName":"<name>","retinfoDrinkCapacity":<integer_ml_or_0>,"retinfoDrinkAmount":<integer_qty>}],"retinfoIsAvaild":"true","retinfoReceiptTime":"<YYYY-MM-DD HH:MM:SS>"}
@@ -242,6 +243,26 @@ export function parseOpenAIChatReceiptPayload(response: unknown): DifyReceiptPay
   }
 
   return parsed as DifyReceiptPayload;
+}
+
+function hasExtractedDrinkItems(drinkList: unknown): boolean {
+  return (
+    Array.isArray(drinkList) &&
+    drinkList.some((item) => isRecord(item) && typeof item.retinfoDrinkName === 'string' && item.retinfoDrinkName.trim() !== '')
+  );
+}
+
+export function enforceReceiptPayloadBusinessRules(payload: DifyReceiptPayload): DifyReceiptPayload {
+  const isValid =
+    typeof payload.retinfoIsAvaild === 'string'
+      ? payload.retinfoIsAvaild.trim().toLowerCase() === 'true'
+      : payload.retinfoIsAvaild === true;
+
+  if (isValid && !hasExtractedDrinkItems(payload.drinkList)) {
+    return { retinfoIsAvaild: 'false' };
+  }
+
+  return payload;
 }
 
 function normalizeJpegQuality(value: number): number {
@@ -461,7 +482,7 @@ export function createReceiptAnalysisActivities(config: ReceiptAnalysisConfig) {
         config.RECEIPT_MODEL_PROVIDER === 'siliconflow'
           ? await callSiliconFlow(config, image)
           : await callGemini(config, image);
-      const payload = result.payload;
+      const payload = enforceReceiptPayloadBusinessRules(result.payload);
       console.info('bb_receipt_model_usage', {
         submission_id: input.submissionId,
         provider: config.RECEIPT_MODEL_PROVIDER,

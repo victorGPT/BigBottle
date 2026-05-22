@@ -3,6 +3,7 @@ import sharp from 'sharp';
 
 import {
   computeReceiptTimeThreshold,
+  enforceReceiptPayloadBusinessRules,
   parseGeminiReceiptPayload,
   parseOpenAIChatReceiptPayload,
   prepareReceiptModelImage,
@@ -87,7 +88,27 @@ describe('receipt analysis activities', () => {
     expect(RECEIPT_ANALYSIS_PROMPT).toContain('YYYY-MM-DD HH:MM:SS');
     expect(RECEIPT_ANALYSIS_PROMPT).toContain('currency');
     expect(RECEIPT_ANALYSIS_PROMPT).toContain('handwritten');
-    expect(RECEIPT_ANALYSIS_PROMPT).toContain('empty drinkList');
+    expect(RECEIPT_ANALYSIS_PROMPT).toContain('If no beverage items are present');
+  });
+
+  it('rejects valid-looking payloads with no extracted drink items', () => {
+    const payload = enforceReceiptPayloadBusinessRules({
+      drinkList: [],
+      retinfoIsAvaild: 'true',
+      retinfoReceiptTime: '2026-05-22 12:00:00'
+    });
+
+    expect(payload).toEqual({ retinfoIsAvaild: 'false' });
+  });
+
+  it('keeps valid payloads with extracted drink names', () => {
+    const payload = {
+      drinkList: [{ retinfoDrinkName: 'Water', retinfoDrinkCapacity: 500, retinfoDrinkAmount: 1 }],
+      retinfoIsAvaild: 'true',
+      retinfoReceiptTime: '2026-05-22 12:00:00'
+    };
+
+    expect(enforceReceiptPayloadBusinessRules(payload)).toBe(payload);
   });
 
   it('prepares receipt images for lower-cost model input', async () => {

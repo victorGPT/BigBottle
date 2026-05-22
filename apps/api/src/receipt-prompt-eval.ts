@@ -5,6 +5,7 @@ import { extname, resolve } from 'node:path';
 import sharp from 'sharp';
 
 import {
+  enforceReceiptPayloadBusinessRules,
   parseOpenAIChatReceiptPayload,
   prepareReceiptModelImage,
   RECEIPT_ANALYSIS_PROMPT,
@@ -176,7 +177,7 @@ async function callSiliconFlow(variant: PromptVariant, image: PreparedImage) {
   }
 
   const raw = await res.json();
-  const payload = parseOpenAIChatReceiptPayload(raw);
+  const payload = enforceReceiptPayloadBusinessRules(parseOpenAIChatReceiptPayload(raw));
   const usage = isRecord(raw) && isRecord(raw.usage) ? (raw.usage as ChatUsage) : null;
   return {
     usage,
