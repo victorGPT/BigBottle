@@ -1,3 +1,5 @@
+import sharp from 'sharp';
+
 import type { DifyReceiptPayload } from './dify.js';
 
 export type ReceiptVerificationWorkflowInput = {
@@ -15,6 +17,8 @@ export type ReceiptAnalysisConfig = {
   GEMINI_API_BASE_URL: string;
   GEMINI_TIMEOUT_MS: number;
   GEMINI_MAX_IMAGE_BYTES: number;
+  RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE: number;
+  RECEIPT_MODEL_IMAGE_JPEG_QUALITY: number;
   SILICONFLOW_API_KEY?: string | undefined;
   SILICONFLOW_MODEL: string;
   SILICONFLOW_API_BASE_URL: string;
@@ -39,6 +43,30 @@ type OpenAIChatResponse = {
       content?: unknown;
     };
   }>;
+  usage?: ReceiptModelUsage;
+};
+
+type ReceiptModelUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+type ReceiptModelImage = {
+  data: string;
+  mimeType: string;
+  originalBytes: number;
+  inputBytes: number;
+  originalWidth: number | null;
+  originalHeight: number | null;
+  inputWidth: number | null;
+  inputHeight: number | null;
+  optimized: boolean;
+};
+
+type ReceiptModelResult = {
+  payload: DifyReceiptPayload;
+  usage: ReceiptModelUsage | null;
 };
 
 export const RECEIPT_ANALYSIS_PROMPT_PREVIOUS = `# ROLE
@@ -216,7 +244,77 @@ export function parseOpenAIChatReceiptPayload(response: unknown): DifyReceiptPay
   return parsed as DifyReceiptPayload;
 }
 
-async function fetchImageAsBase64(imageUrl: string, maxBytes: number): Promise<{ data: string; mimeType: string }> {
+function normalizeJpegQuality(value: number): number {
+  if (!Number.isFinite(value)) return 78;
+  return Math.min(100, Math.max(1, Math.round(value)));
+}
+
+export async function prepareReceiptModelImage(
+  bytes: Buffer,
+  mimeType: string,
+  options: { maxLongEdge: number; jpegQuality: number }
+): Promise<ReceiptModelImage> {
+  const originalBytes = bytes.byteLength;
+  let metadata: Partial<sharp.Metadata> = {};
+  try {
+    metadata = await sharp(bytes, { failOn: 'none' }).metadata();
+  } catch {
+    return {
+      data: bytes.toString('base64'),
+      mimeType,
+      originalBytes,
+      inputBytes: originalBytes,
+      originalWidth: null,
+      originalHeight: null,
+      inputWidth: null,
+      inputHeight: null,
+      optimized: false
+    };
+  }
+
+  const maxLongEdge = Math.max(1, Math.floor(options.maxLongEdge));
+  const jpegQuality = normalizeJpegQuality(options.jpegQuality);
+
+  try {
+    const optimized = await sharp(bytes, { failOn: 'none' })
+      .rotate()
+      .resize({
+        width: maxLongEdge,
+        height: maxLongEdge,
+        fit: 'inside',
+        withoutEnlargement: true
+      })
+      .flatten({ background: '#ffffff' })
+      .jpeg({ quality: jpegQuality, mozjpeg: true })
+      .toBuffer({ resolveWithObject: true });
+
+    return {
+      data: optimized.data.toString('base64'),
+      mimeType: 'image/jpeg',
+      originalBytes,
+      inputBytes: optimized.data.byteLength,
+      originalWidth: metadata.width ?? null,
+      originalHeight: metadata.height ?? null,
+      inputWidth: optimized.info.width,
+      inputHeight: optimized.info.height,
+      optimized: true
+    };
+  } catch {
+    return {
+      data: bytes.toString('base64'),
+      mimeType,
+      originalBytes,
+      inputBytes: originalBytes,
+      originalWidth: metadata.width ?? null,
+      originalHeight: metadata.height ?? null,
+      inputWidth: metadata.width ?? null,
+      inputHeight: metadata.height ?? null,
+      optimized: false
+    };
+  }
+}
+
+async function fetchImageForModel(imageUrl: string, config: ReceiptAnalysisConfig): Promise<ReceiptModelImage> {
   const res = await fetch(imageUrl);
   if (!res.ok) {
     throw new Error(`Receipt image fetch failed: ${res.status} ${res.statusText}`);
@@ -224,20 +322,20 @@ async function fetchImageAsBase64(imageUrl: string, maxBytes: number): Promise<{
 
   const mimeType = res.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg';
   const bytes = Buffer.from(await res.arrayBuffer());
-  if (bytes.byteLength > maxBytes) {
-    throw new Error(`Receipt image exceeds ${maxBytes} bytes`);
+  if (bytes.byteLength > config.GEMINI_MAX_IMAGE_BYTES) {
+    throw new Error(`Receipt image exceeds ${config.GEMINI_MAX_IMAGE_BYTES} bytes`);
   }
 
-  return {
-    data: bytes.toString('base64'),
-    mimeType
-  };
+  return prepareReceiptModelImage(bytes, mimeType, {
+    maxLongEdge: config.RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE,
+    jpegQuality: config.RECEIPT_MODEL_IMAGE_JPEG_QUALITY
+  });
 }
 
 async function callGemini(
   config: ReceiptAnalysisConfig,
-  image: { data: string; mimeType: string }
-): Promise<DifyReceiptPayload> {
+  image: ReceiptModelImage
+): Promise<ReceiptModelResult> {
   if (!config.GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY is required for Temporal receipt analysis worker');
   }
@@ -276,7 +374,10 @@ async function callGemini(
       throw new Error(`Gemini request failed: ${res.status} ${res.statusText} ${body}`);
     }
 
-    return parseGeminiReceiptPayload(await res.json());
+    return {
+      payload: parseGeminiReceiptPayload(await res.json()),
+      usage: null
+    };
   } finally {
     clearTimeout(timeout);
   }
@@ -284,8 +385,8 @@ async function callGemini(
 
 async function callSiliconFlow(
   config: ReceiptAnalysisConfig,
-  image: { data: string; mimeType: string }
-): Promise<DifyReceiptPayload> {
+  image: ReceiptModelImage
+): Promise<ReceiptModelResult> {
   if (!config.SILICONFLOW_API_KEY) {
     throw new Error('SILICONFLOW_API_KEY is required for SiliconFlow receipt analysis');
   }
@@ -341,7 +442,11 @@ async function callSiliconFlow(
       throw new Error(`SiliconFlow request failed: ${res.status} ${res.statusText} ${body}`);
     }
 
-    return parseOpenAIChatReceiptPayload(await res.json());
+    const raw = await res.json();
+    return {
+      payload: parseOpenAIChatReceiptPayload(raw),
+      usage: isRecord(raw) && isRecord(raw.usage) ? (raw.usage as ReceiptModelUsage) : null
+    };
   } finally {
     clearTimeout(timeout);
   }
@@ -350,11 +455,31 @@ async function callSiliconFlow(
 export function createReceiptAnalysisActivities(config: ReceiptAnalysisConfig) {
   return {
     async analyzeReceiptImage(input: ReceiptVerificationWorkflowInput): Promise<DifyReceiptPayload> {
-      const image = await fetchImageAsBase64(input.imageUrl, config.GEMINI_MAX_IMAGE_BYTES);
-      const payload =
+      const image = await fetchImageForModel(input.imageUrl, config);
+      const startedAt = performance.now();
+      const result =
         config.RECEIPT_MODEL_PROVIDER === 'siliconflow'
           ? await callSiliconFlow(config, image)
           : await callGemini(config, image);
+      const payload = result.payload;
+      console.info('bb_receipt_model_usage', {
+        submission_id: input.submissionId,
+        provider: config.RECEIPT_MODEL_PROVIDER,
+        model: config.RECEIPT_MODEL_PROVIDER === 'siliconflow' ? config.SILICONFLOW_MODEL : config.GEMINI_MODEL,
+        duration_ms: Math.round(performance.now() - startedAt),
+        image: {
+          optimized: image.optimized,
+          original_bytes: image.originalBytes,
+          input_bytes: image.inputBytes,
+          original_width: image.originalWidth,
+          original_height: image.originalHeight,
+          input_width: image.inputWidth,
+          input_height: image.inputHeight,
+          max_long_edge: config.RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE,
+          jpeg_quality: config.RECEIPT_MODEL_IMAGE_JPEG_QUALITY
+        },
+        usage: result.usage
+      });
       return {
         ...payload,
         timeThreshold: computeReceiptTimeThreshold(payload.retinfoReceiptTime),

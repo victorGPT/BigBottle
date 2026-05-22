@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import sharp from 'sharp';
 
 import {
   computeReceiptTimeThreshold,
   parseGeminiReceiptPayload,
   parseOpenAIChatReceiptPayload,
+  prepareReceiptModelImage,
   RECEIPT_ANALYSIS_PROMPT,
   RECEIPT_ANALYSIS_PROMPT_PREVIOUS,
   RECEIPT_ANALYSIS_USER_TEXT,
@@ -86,5 +88,30 @@ describe('receipt analysis activities', () => {
     expect(RECEIPT_ANALYSIS_PROMPT).toContain('currency');
     expect(RECEIPT_ANALYSIS_PROMPT).toContain('handwritten');
     expect(RECEIPT_ANALYSIS_PROMPT).toContain('empty drinkList');
+  });
+
+  it('prepares receipt images for lower-cost model input', async () => {
+    const source = await sharp({
+      create: {
+        width: 1200,
+        height: 2400,
+        channels: 3,
+        background: '#ffffff'
+      }
+    })
+      .jpeg({ quality: 95 })
+      .toBuffer();
+
+    const prepared = await prepareReceiptModelImage(source, 'image/jpeg', {
+      maxLongEdge: 1024,
+      jpegQuality: 78
+    });
+
+    expect(prepared.optimized).toBe(true);
+    expect(prepared.mimeType).toBe('image/jpeg');
+    expect(prepared.originalWidth).toBe(1200);
+    expect(prepared.originalHeight).toBe(2400);
+    expect(Math.max(prepared.inputWidth ?? 0, prepared.inputHeight ?? 0)).toBe(1024);
+    expect(prepared.inputBytes).toBeLessThan(prepared.originalBytes);
   });
 });
