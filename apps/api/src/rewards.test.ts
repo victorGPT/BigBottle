@@ -300,6 +300,75 @@ describe('rewards', () => {
     expect(metadata.sources.items[0].drinks).toHaveLength(3);
   });
 
+  it('fails the claim when raw transaction broadcast is rejected', async () => {
+    const createdClaim = rewardClaim();
+    const submittedClaim = rewardClaim({
+      status: 'submitted',
+      tx_hash: '0x' + '4'.repeat(64),
+      raw_tx: '0xraw'
+    });
+    const updates: Array<Partial<DbRewardClaim>> = [];
+    const repo = {
+      getUserPointsTotal: async () => 12,
+      getUserPointsLocked: async () => 0,
+      getActiveRewardConversionRate: async (): Promise<DbRewardConversionRate> => ({
+        id: createdClaim.conversion_rate_id,
+        points_per_b3tr: 10,
+        active: true,
+        created_at: '2026-05-08T00:00:00.000Z'
+      }),
+      getRewardClaimByClientId: async () => null,
+      getInflightRewardClaim: async () => null,
+      getRewardClaimById: async () => null,
+      listRewardClaimSourceSubmissions: async () => [submission()],
+      createRewardClaim: async () => createdClaim,
+      createRewardClaimSources: async (inputs: any[]) => inputs,
+      updateRewardClaim: async (_id: string, patch: Partial<DbRewardClaim>) => {
+        updates.push(patch);
+        return {
+          ...submittedClaim,
+          ...patch
+        };
+      },
+      listRewardClaims: async () => []
+    };
+    const chain = {
+      signRewardDistributionTx: async () => ({ txHash: submittedClaim.tx_hash!, rawTx: submittedClaim.raw_tx! }),
+      broadcastRawTransaction: async () => {
+        throw new Error('tx rejected: insufficient energy');
+      },
+      getTransactionReceipt: async () => null,
+      getRewardPoolBalance: async () => ({
+        availableFundsWei: 0n,
+        appId: `0x${'0'.repeat(64)}`,
+        rewardsPoolAddress: '0x0000000000000000000000000000000000000000',
+        network: 'testnet' as const
+      })
+    };
+
+    await expect(
+      createOrGetRewardClaimAndSubmit({
+        repo,
+        chain,
+        userId: createdClaim.user_id,
+        walletAddressLower: createdClaim.wallet_address,
+        clientClaimId: createdClaim.client_claim_id,
+        isUniqueViolation: () => false
+      })
+    ).rejects.toThrow('tx rejected: insufficient energy');
+
+    expect(updates).toContainEqual({
+      status: 'submitted',
+      tx_hash: submittedClaim.tx_hash,
+      raw_tx: submittedClaim.raw_tx,
+      failure_reason: null
+    });
+    expect(updates).toContainEqual({
+      status: 'failed',
+      failure_reason: 'tx rejected: insufficient energy'
+    });
+  });
+
   it('formats reward distribution pool balance from chain status', async () => {
     const pool = await getRewardsPoolStatus({
       signRewardDistributionTx: async () => ({ txHash: '0x', rawTx: '0x' }),
