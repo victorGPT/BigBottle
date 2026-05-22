@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "bridge": "node dist/temporal-bridge.js",
     "bridge:dev": "tsx src/temporal-bridge.ts",
+    "prompt:eval": "tsx src/receipt-prompt-eval.ts",
     "worker": "node dist/temporal-worker.js",
     "worker:dev": "tsx src/temporal-worker.ts",
     "sync:vebetter-nodes": "tsx src/vebetter-node-sync.ts"

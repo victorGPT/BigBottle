@@ -41,7 +41,7 @@ type OpenAIChatResponse = {
   }>;
 };
 
-const RECEIPT_ANALYSIS_PROMPT = `# ROLE
+export const RECEIPT_ANALYSIS_PROMPT_PREVIOUS = `# ROLE
 You are a strict Receipt Analysis Engine. Your goal is to validate receipt data and extract specific drink information into a JSON format.
 
 # RULES
@@ -77,6 +77,29 @@ Failure:
 
 # FINAL CONSTRAINT
 Output JSON only. Do not output markdown code blocks. Do not output any other text or explanations.`;
+
+export const RECEIPT_ANALYSIS_PROMPT = `Validate and extract a retail receipt. Return JSON only.
+
+Reject with {"retinfoIsAvaild":"false"} if any condition is true:
+- not a POS, cash-register, machine-printed, or digital business receipt
+- core transaction text is handwritten
+- missing items+prices+total, or missing store/logo/address/phone/transaction id
+- receipt time is unreadable
+- currency unit/symbol is RP, Rp, or Rp.
+
+If valid, extract every beverage item, including water, tea, soda, coffee, alcohol, juice, and similar drinks. A valid receipt with no beverage items still returns an empty drinkList.
+
+Success JSON:
+{"drinkList":[{"retinfoDrinkName":"<name>","retinfoDrinkCapacity":<integer_ml_or_0>,"retinfoDrinkAmount":<integer_qty>}],"retinfoIsAvaild":"true","retinfoReceiptTime":"<YYYY-MM-DD HH:MM:SS>"}
+
+Field rules:
+- Normalize receipt time to YYYY-MM-DD HH:MM:SS.
+- Capacity is integer ml; use 0 when missing or illegible.
+- Quantity is integer; use 1 when not shown.
+- No markdown, prose, or extra keys.`;
+
+export const RECEIPT_ANALYSIS_USER_TEXT_PREVIOUS = 'Please analyze this receipt image and output JSON only.';
+export const RECEIPT_ANALYSIS_USER_TEXT = 'Analyze the receipt image.';
 
 const receiptOutputSchema = {
   type: 'OBJECT',
@@ -294,7 +317,7 @@ async function callSiliconFlow(
             content: [
               {
                 type: 'text',
-                text: 'Please analyze this receipt image and output JSON only.'
+                text: RECEIPT_ANALYSIS_USER_TEXT
               },
               {
                 type: 'image_url',
