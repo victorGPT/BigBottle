@@ -17,11 +17,11 @@ describe('receipt analysis activities', () => {
   it('matches the Dify time threshold rule', () => {
     const now = new Date(2026, 4, 21, 12, 0, 0);
 
-    expect(computeReceiptTimeThreshold('2026-05-14 12:00:00', now)).toBe('false');
-    expect(computeReceiptTimeThreshold('2026-05-22 00:00:00', now)).toBe('false');
-    expect(computeReceiptTimeThreshold('2026-05-14 11:59:59', now)).toBe('true');
-    expect(computeReceiptTimeThreshold('2026-05-22 00:00:01', now)).toBe('true');
-    expect(computeReceiptTimeThreshold('not-a-time', now)).toBe('true');
+    expect(computeReceiptTimeThreshold('2026-05-14 12:00:00', now)).toBe('true');
+    expect(computeReceiptTimeThreshold('2026-05-22 00:00:00', now)).toBe('true');
+    expect(computeReceiptTimeThreshold('2026-05-14 11:59:59', now)).toBe('false');
+    expect(computeReceiptTimeThreshold('2026-05-22 00:00:01', now)).toBe('false');
+    expect(computeReceiptTimeThreshold('not-a-time', now)).toBe('false');
   });
 
   it('parses Gemini JSON text output', () => {

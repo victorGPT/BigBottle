@@ -51,7 +51,7 @@ function submission(overrides: Partial<DbReceiptSubmission> = {}): DbReceiptSubm
     ],
     receipt_time_raw: '2026-05-08 00:00:00',
     retinfo_is_availd: 'true',
-    time_threshold: 'false',
+    time_threshold: 'true',
     points_base: 12,
     points_multiplier: 1,
     points_bonus_sources: [],

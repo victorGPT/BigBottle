@@ -841,7 +841,7 @@ async function main() {
       const retinfoIsAvaild = normalizeBoolString(retinfoIsAvaildRaw);
       const timeThreshold = normalizeBoolString(timeThresholdRaw);
 
-      const ok = retinfoIsAvaild === 'true' && timeThreshold === 'false';
+      const ok = retinfoIsAvaild === 'true' && timeThreshold === 'true';
       const { totalPoints: basePoints } = computeTotalPoints(payload.drinkList);
       const bonusSnapshot =
         ok && basePoints > 0
