@@ -195,6 +195,10 @@ File: `apps/web/src/app/pages/ResultPage.tsx`
   - `points_base`: receipt base points before achievement bonuses
   - `points_multiplier`: applied achievement multiplier
   - `points_bonus_sources`: JSON source snapshot such as GM-NFT, VeBetterDAO voter, or legacy final-points-only receipts
+- Receipt verification stores analyzer telemetry on the submission row:
+  - `analyzer_provider` / `analyzer_model`: model route used for receipt extraction
+  - `analyzer_usage`: raw model token usage object when the provider returns one
+  - `analyzer_image`: image bytes/content-type metadata used for cost debugging
 
 ### Client Image Compression
 File: `apps/web/src/util/receiptImageCompression.ts`
@@ -422,6 +426,10 @@ Tables:
   - `retinfo_is_availd text`
   - `time_threshold text`
   - `points_total integer not null default 0`
+  - `analyzer_provider text`
+  - `analyzer_model text`
+  - `analyzer_usage jsonb`
+  - `analyzer_image jsonb`
   - `verified_at timestamptz`
   - `created_at timestamptz default now()`
   - `updated_at timestamptz default now()`
@@ -469,6 +477,18 @@ Constraints:
 
 ### `supabase/migrations/202605180003_reprice_unsettled_receipt_points.sql`
 - Reprices existing verified receipt submissions that have not been attached to a `pending`, `submitted`, or `confirmed` reward claim source. These unsettled receipts are recalculated with `points_base <= 20` while preserving their stored multiplier.
+
+### `supabase/migrations/20260525104737_receipt_analyzer_usage.sql`
+Columns added to `public.receipt_submissions`:
+- `analyzer_provider text`
+- `analyzer_model text`
+- `analyzer_usage jsonb`
+- `analyzer_image jsonb`
+
+Constraints / indexes:
+- `analyzer_provider` must be `dify`, `gemini`, `siliconflow`, `temporal`, or `null`
+- `analyzer_usage` and `analyzer_image` must be JSON objects when present
+- Index on `(analyzer_provider, created_at desc)` for usage/cost reporting
 
 ### `supabase/migrations/20260208_z_account_summary.sql`
 Functions:

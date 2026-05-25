@@ -317,6 +317,10 @@ type DbReceiptSubmission = {
   receipt_fingerprint: string | null;
   rejection_code: string | null;
   duplicate_of: string | null;
+  analyzer_provider: string | null;
+  analyzer_model: string | null;
+  analyzer_usage: unknown | null;
+  analyzer_image: unknown | null;
   verified_at: string | null;
   created_at: string;
   updated_at: string;
@@ -1936,6 +1940,47 @@ function enforceReceiptPayloadBusinessRules(payload: DifyReceiptPayload): DifyRe
   return payload;
 }
 
+type ReceiptAnalyzerTelemetry = {
+  provider: AppConfig["RECEIPT_ANALYZER_PROVIDER"];
+  model: string | null;
+  usage: unknown | null;
+  image: Record<string, unknown> | null;
+};
+
+type ReceiptAnalyzerRunResult = {
+  raw: unknown;
+  telemetry: ReceiptAnalyzerTelemetry;
+};
+
+function receiptAnalyzerModel(config: AppConfig): string | null {
+  if (config.RECEIPT_ANALYZER_PROVIDER === "gemini") return config.GEMINI_MODEL;
+  if (config.RECEIPT_ANALYZER_PROVIDER === "siliconflow") return config.SILICONFLOW_MODEL;
+  return null;
+}
+
+function receiptAnalyzerTelemetry(
+  config: AppConfig,
+  patch: Partial<Omit<ReceiptAnalyzerTelemetry, "provider" | "model">> & {
+    model?: string | null;
+  } = {},
+): ReceiptAnalyzerTelemetry {
+  return {
+    provider: config.RECEIPT_ANALYZER_PROVIDER,
+    model: patch.model ?? receiptAnalyzerModel(config),
+    usage: patch.usage ?? null,
+    image: patch.image ?? null,
+  };
+}
+
+function receiptAnalyzerDbPatch(telemetry: ReceiptAnalyzerTelemetry | null) {
+  return {
+    analyzer_provider: telemetry?.provider ?? null,
+    analyzer_model: telemetry?.model ?? null,
+    analyzer_usage: telemetry?.usage ?? null,
+    analyzer_image: telemetry?.image ?? null,
+  };
+}
+
 async function runDify(config: AppConfig, input: { imageUrl: string; userRef: string }) {
   if (config.DIFY_MODE === "mock") {
     return {
@@ -1991,7 +2036,7 @@ async function runDify(config: AppConfig, input: { imageUrl: string; userRef: st
   return res.json();
 }
 
-async function runGeminiReceiptAnalyzer(config: AppConfig, input: { imageUrl: string; userRef: string }) {
+async function runGeminiReceiptAnalyzer(config: AppConfig, input: { imageUrl: string; userRef: string }): Promise<ReceiptAnalyzerRunResult> {
   if (!config.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is required");
   const imageRes = await fetch(input.imageUrl);
   if (!imageRes.ok) {
@@ -2056,14 +2101,25 @@ async function runGeminiReceiptAnalyzer(config: AppConfig, input: { imageUrl: st
   const parsed = JSON.parse(stripJsonFence(text));
   if (!isRecord(parsed)) throw new Error("Gemini receipt payload is not an object");
   const payload = enforceReceiptPayloadBusinessRules(parsed as DifyReceiptPayload);
-  return {
+  const rawPayload = {
     ...payload,
     timeThreshold: computeReceiptTimeThreshold(payload.retinfoReceiptTime),
     user_id: input.userRef,
   };
+  return {
+    raw: rawPayload,
+    telemetry: receiptAnalyzerTelemetry(config, {
+      usage: isRecord(raw?.usageMetadata) ? raw.usageMetadata : null,
+      image: {
+        mime_type: mimeType,
+        input_bytes: imageBytes.byteLength,
+        max_image_bytes: config.GEMINI_MAX_IMAGE_BYTES,
+      },
+    }),
+  };
 }
 
-async function runSiliconFlowReceiptAnalyzer(config: AppConfig, input: { imageUrl: string; userRef: string }) {
+async function runSiliconFlowReceiptAnalyzer(config: AppConfig, input: { imageUrl: string; userRef: string }): Promise<ReceiptAnalyzerRunResult> {
   if (!config.SILICONFLOW_API_KEY) throw new Error("SILICONFLOW_API_KEY is required");
   const imageRes = await fetch(input.imageUrl);
   if (!imageRes.ok) {
@@ -2130,21 +2186,35 @@ async function runSiliconFlowReceiptAnalyzer(config: AppConfig, input: { imageUr
   const parsed = JSON.parse(stripJsonFence(text));
   if (!isRecord(parsed)) throw new Error("SiliconFlow receipt payload is not an object");
   const payload = enforceReceiptPayloadBusinessRules(parsed as DifyReceiptPayload);
-  return {
+  const rawPayload = {
     ...payload,
     timeThreshold: computeReceiptTimeThreshold(payload.retinfoReceiptTime),
     user_id: input.userRef,
   };
+  return {
+    raw: rawPayload,
+    telemetry: receiptAnalyzerTelemetry(config, {
+      usage: isRecord(raw?.usage) ? raw.usage : null,
+      image: {
+        mime_type: mimeType,
+        input_bytes: imageBytes.byteLength,
+        max_image_bytes: config.GEMINI_MAX_IMAGE_BYTES,
+      },
+    }),
+  };
 }
 
-async function runReceiptAnalyzer(config: AppConfig, input: { imageUrl: string; userRef: string }) {
+async function runReceiptAnalyzer(config: AppConfig, input: { imageUrl: string; userRef: string }): Promise<ReceiptAnalyzerRunResult> {
   if (config.RECEIPT_ANALYZER_PROVIDER === "gemini") {
     return await runGeminiReceiptAnalyzer(config, input);
   }
   if (config.RECEIPT_ANALYZER_PROVIDER === "siliconflow") {
     return await runSiliconFlowReceiptAnalyzer(config, input);
   }
-  return await runDify(config, input);
+  return {
+    raw: await runDify(config, input),
+    telemetry: receiptAnalyzerTelemetry(config),
+  };
 }
 
 function extractDifyReceiptPayload(raw: unknown): DifyReceiptPayload | null {
@@ -2913,6 +2983,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     const verifyInBackground = async () => {
       let updatedForLog: DbReceiptSubmission | null = null;
       let imageBytesForLog: number | null = null;
+      let analyzerTelemetryForLog: ReceiptAnalyzerTelemetry | null = null;
       let errorForLog: { message: string; code: string | null } | null = null;
 
       try {
@@ -2929,6 +3000,12 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         return;
       }
       imageBytesForLog = meta.contentLength;
+      analyzerTelemetryForLog = receiptAnalyzerTelemetry(config, {
+        image: {
+          source_bytes: meta.contentLength,
+          content_type: claimed.image_content_type,
+        },
+      });
 
       const tPresignGet = performance.now();
       const getUrl = await presignGetObject({
@@ -2941,7 +3018,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       timing.s3_presign_get_ms = Math.round(performance.now() - tPresignGet);
 
       const tDify = performance.now();
-      const difyRaw = await runReceiptAnalyzer(config, { imageUrl: getUrl.url, userRef: authed.wallet });
+      const analyzerResult = await runReceiptAnalyzer(config, { imageUrl: getUrl.url, userRef: authed.wallet });
+      const difyRaw = analyzerResult.raw;
+      analyzerTelemetryForLog = analyzerResult.telemetry;
       timing.dify_ms = Math.round(performance.now() - tDify);
 
       const tExtract = performance.now();
@@ -2953,6 +3032,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         const updated = await repo.updateSubmission(claimed.id, {
           status: "rejected",
           dify_raw: difyRaw as any,
+          ...receiptAnalyzerDbPatch(analyzerTelemetryForLog),
           points_base: 0,
           points_multiplier: 1,
           points_bonus_sources: [],
@@ -3041,6 +3121,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           status: finalStatus,
           dify_raw: difyRaw as any,
           dify_drink_list: (payload.drinkList ?? null) as any,
+          ...receiptAnalyzerDbPatch(analyzerTelemetryForLog),
           receipt_time_raw: receiptTimeRaw,
           retinfo_is_availd: retinfoIsAvaild,
           time_threshold: timeThreshold,
@@ -3061,6 +3142,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
             status: "rejected",
             dify_raw: difyRaw as any,
             dify_drink_list: (payload.drinkList ?? null) as any,
+            ...receiptAnalyzerDbPatch(analyzerTelemetryForLog),
             receipt_time_raw: receiptTimeRaw,
             retinfo_is_availd: retinfoIsAvaild,
             time_threshold: timeThreshold,
@@ -3124,6 +3206,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           message: err instanceof Error ? err.message : String(err),
           at: new Date().toISOString(),
         } as any,
+        ...receiptAnalyzerDbPatch(analyzerTelemetryForLog),
         points_base: 0,
         points_multiplier: 1,
         points_bonus_sources: [],
@@ -3158,6 +3241,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         image_bytes: imageBytesForLog,
         timing_ms: timing,
         error: errorForLog,
+        analyzer: analyzerTelemetryForLog,
         dify_mode: config.DIFY_MODE,
       });
     }

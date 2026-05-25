@@ -769,6 +769,12 @@ async function main() {
       const verifyStart = performance.now();
       let updatedForLog: any = null;
       let imageBytesForLog: number | null = null;
+      let analyzerDbPatch: {
+        analyzer_provider: string;
+        analyzer_model: null;
+        analyzer_usage: null;
+        analyzer_image: { source_bytes: number | null; content_type: string | null } | null;
+      } | null = null;
       let errorForLog: { message: string; code: string | null } | null = null;
 
       try {
@@ -778,6 +784,15 @@ async function main() {
         return;
       }
       imageBytesForLog = meta.contentLength;
+      analyzerDbPatch = {
+        analyzer_provider: config.RECEIPT_ANALYZER_PROVIDER,
+        analyzer_model: null,
+        analyzer_usage: null,
+        analyzer_image: {
+          source_bytes: meta.contentLength,
+          content_type: claimed.image_content_type
+        }
+      };
 
       const getUrl = await presignGetObject({
         s3,
@@ -797,6 +812,7 @@ async function main() {
         const updated = await repo.updateSubmission(claimed.id, {
           status: 'rejected',
           dify_raw: difyRaw as any,
+          ...(analyzerDbPatch ?? {}),
           points_base: 0,
           points_multiplier: 1,
           points_bonus_sources: [],
@@ -873,6 +889,7 @@ async function main() {
           status: finalStatus,
           dify_raw: difyRaw as any,
           dify_drink_list: (payload.drinkList ?? null) as any,
+          ...(analyzerDbPatch ?? {}),
           receipt_time_raw: receiptTimeRaw,
           retinfo_is_availd: retinfoIsAvaild,
           time_threshold: timeThreshold,
@@ -893,6 +910,7 @@ async function main() {
             status: 'rejected',
             dify_raw: difyRaw as any,
             dify_drink_list: (payload.drinkList ?? null) as any,
+            ...(analyzerDbPatch ?? {}),
             receipt_time_raw: receiptTimeRaw,
             retinfo_is_availd: retinfoIsAvaild,
             time_threshold: timeThreshold,
@@ -946,6 +964,7 @@ async function main() {
           message: err instanceof Error ? err.message : String(err),
           at: new Date().toISOString()
         } as any,
+        ...(analyzerDbPatch ?? {}),
         points_base: 0,
         points_multiplier: 1,
         points_bonus_sources: [],
@@ -971,6 +990,7 @@ async function main() {
           image_bytes: imageBytesForLog,
           duration_ms: Math.round(performance.now() - verifyStart),
           error: errorForLog,
+          analyzer: analyzerDbPatch,
           analyzer_provider: config.RECEIPT_ANALYZER_PROVIDER
         },
         'bb_verify_background_done'
