@@ -379,6 +379,11 @@ Config:
   - `scripts/setup-supabase.sh` delegates interactive deploys to the canonical deploy script instead of issuing a raw deploy directly.
   - `.github/workflows/supabase-api-public-routes-guard.yml` runs scheduled drift checks against the public API endpoint.
   - `.github/workflows/supabase-api-deploy-guard-ci.yml` runs the shell guard tests plus the static canonical-deploy check on PRs.
+- AWS self-hosted migration assets:
+  - `docs/aws-supabase-migration-plan.md`: EC2/Docker Compose self-hosted Supabase migration, cutover, and rollback plan.
+  - `deploy/aws-supabase/README.md`: AWS host bootstrap and self-hosted function deployment notes.
+  - `deploy/aws-supabase/functions.env.example`: BigBottle function secret checklist for self-hosted Supabase.
+  - `scripts/ci/package_self_hosted_supabase_api.sh`: packages `supabase/functions/api` into a `volumes/functions/api` tarball for self-hosted Supabase.
 - For easy frontend domain changes, keep `CORS_ORIGIN='*'` (default).
 - Phase 2 rewards env vars (same semantics as `apps/api`):
   - `REWARDS_MODE`
