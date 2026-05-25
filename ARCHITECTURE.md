@@ -235,6 +235,7 @@ File: `apps/api/src/config.ts`
 - `S3_BUCKET`
 - `S3_PRESIGN_EXPIRES_SECONDS` (default `300`)
 - `RECEIPT_ANALYZER_PROVIDER` (`dify` or `temporal`, default `dify`)
+- Supabase Edge Function supports direct `RECEIPT_ANALYZER_PROVIDER=gemini` or `RECEIPT_ANALYZER_PROVIDER=siliconflow` receipt analysis when bypassing the Dify-compatible bridge.
 - `DIFY_MODE` (`mock` or `workflow`, default `workflow`)
 - `DIFY_API_URL` / `DIFY_API_KEY` / `DIFY_WORKFLOW_ID` (required when `DIFY_MODE=workflow`)
 - `DIFY_IMAGE_INPUT_KEY` (default `image_url`)
