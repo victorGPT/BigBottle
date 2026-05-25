@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import sharp from 'sharp';
 
 import {
@@ -10,7 +10,8 @@ import {
   RECEIPT_ANALYSIS_PROMPT,
   RECEIPT_ANALYSIS_PROMPT_PREVIOUS,
   RECEIPT_ANALYSIS_USER_TEXT,
-  RECEIPT_ANALYSIS_USER_TEXT_PREVIOUS
+  RECEIPT_ANALYSIS_USER_TEXT_PREVIOUS,
+  createReceiptAnalysisActivities
 } from './receipt-analysis-activities.js';
 
 describe('receipt analysis activities', () => {
@@ -134,5 +135,69 @@ describe('receipt analysis activities', () => {
     expect(prepared.originalHeight).toBe(2400);
     expect(Math.max(prepared.inputWidth ?? 0, prepared.inputHeight ?? 0)).toBe(1024);
     expect(prepared.inputBytes).toBeLessThan(prepared.originalBytes);
+  });
+
+  it('calls SiliconFlow without unsupported thinking parameters', async () => {
+    const source = await sharp({
+      create: {
+        width: 40,
+        height: 80,
+        channels: 3,
+        background: '#ffffff'
+      }
+    })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(source, {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' }
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content:
+                  '{"drinkList":[{"retinfoDrinkName":"Water","retinfoDrinkCapacity":500,"retinfoDrinkAmount":1}],"retinfoIsAvaild":"true","retinfoReceiptTime":"2026-05-22 12:00:00"}'
+              }
+            }
+          ]
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const activities = createReceiptAnalysisActivities({
+        RECEIPT_MODEL_PROVIDER: 'siliconflow',
+        GEMINI_MODEL: 'gemini-2.5-flash',
+        GEMINI_API_BASE_URL: 'https://generativelanguage.googleapis.com',
+        GEMINI_TIMEOUT_MS: 20_000,
+        GEMINI_MAX_IMAGE_BYTES: 10 * 1024 * 1024,
+        RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE: 1024,
+        RECEIPT_MODEL_IMAGE_JPEG_QUALITY: 78,
+        SILICONFLOW_API_KEY: 'siliconflow-key',
+        SILICONFLOW_MODEL: 'Qwen/Qwen3-VL-32B-Instruct',
+        SILICONFLOW_API_BASE_URL: 'https://api.siliconflow.cn/v1',
+        SILICONFLOW_TIMEOUT_MS: 30_000
+      });
+
+      const payload = await activities.analyzeReceiptImage({
+        imageUrl: 'https://example.test/receipt.jpg',
+        userRef: '0x0000000000000000000000000000000000000001',
+        submissionId: 'submission-1'
+      });
+      const requestBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
+
+      expect(payload.retinfoIsAvaild).toBe('true');
+      expect(requestBody.model).toBe('Qwen/Qwen3-VL-32B-Instruct');
+      expect(requestBody.response_format).toEqual({ type: 'json_object' });
+      expect(requestBody).not.toHaveProperty('enable_thinking');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

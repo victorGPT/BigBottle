@@ -66,7 +66,7 @@ const EnvSchema = z
     RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE: z.coerce.number().int().positive().default(1024),
     RECEIPT_MODEL_IMAGE_JPEG_QUALITY: z.coerce.number().int().min(1).max(100).default(78),
     SILICONFLOW_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
-    SILICONFLOW_MODEL: z.preprocess(emptyToUndefined, z.string().min(1).default('Qwen/Qwen3.6-35B-A3B')),
+    SILICONFLOW_MODEL: z.preprocess(emptyToUndefined, z.string().min(1).default('Qwen/Qwen3-VL-32B-Instruct')),
     SILICONFLOW_API_BASE_URL: z.preprocess(
       emptyToUndefined,
       z.string().url().default('https://api.siliconflow.cn/v1')
@@ -140,7 +140,7 @@ const TemporalWorkerEnvSchema = z.object({
   RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE: z.coerce.number().int().positive().default(1024),
   RECEIPT_MODEL_IMAGE_JPEG_QUALITY: z.coerce.number().int().min(1).max(100).default(78),
   SILICONFLOW_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
-  SILICONFLOW_MODEL: z.preprocess(emptyToUndefined, z.string().min(1).default('Qwen/Qwen3.6-35B-A3B')),
+  SILICONFLOW_MODEL: z.preprocess(emptyToUndefined, z.string().min(1).default('Qwen/Qwen3-VL-32B-Instruct')),
   SILICONFLOW_API_BASE_URL: z.preprocess(
     emptyToUndefined,
     z.string().url().default('https://api.siliconflow.cn/v1')

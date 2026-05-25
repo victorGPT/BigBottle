@@ -453,8 +453,7 @@ async function callSiliconFlow(
         stream: false,
         max_tokens: 4096,
         temperature: 0,
-        response_format: { type: 'json_object' },
-        enable_thinking: false
+        response_format: { type: 'json_object' }
       })
     });
 

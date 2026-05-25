@@ -66,6 +66,7 @@ describe('loadConfig', () => {
     expect(cfg.TEMPORAL_API_KEY).toBe('temporal-api-key');
     expect(cfg.GEMINI_MODEL).toBe('gemini-2.5-flash');
     expect(cfg.GEMINI_API_BASE_URL).toBe('https://generativelanguage.googleapis.com');
+    expect(cfg.SILICONFLOW_MODEL).toBe('Qwen/Qwen3-VL-32B-Instruct');
     expect(cfg.RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE).toBe(1024);
     expect(cfg.RECEIPT_MODEL_IMAGE_JPEG_QUALITY).toBe(78);
   });
@@ -100,6 +101,7 @@ describe('loadConfig', () => {
     expect(cfg.TEMPORAL_ADDRESS).toBe('localhost:7233');
     expect(cfg.TEMPORAL_NAMESPACE).toBe('default');
     expect(cfg.TEMPORAL_TLS).toBe(true);
+    expect(cfg.SILICONFLOW_MODEL).toBe('Qwen/Qwen3-VL-32B-Instruct');
     expect(cfg.RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE).toBe(1024);
     expect(cfg.RECEIPT_MODEL_IMAGE_JPEG_QUALITY).toBe(78);
   });
