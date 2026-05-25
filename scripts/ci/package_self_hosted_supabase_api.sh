@@ -11,7 +11,7 @@ mkdir -p "${OUT_DIR}/volumes/functions/api" "$(dirname "${TARBALL}")"
 cp "${ROOT_DIR}/supabase/functions/api/index.ts" "${OUT_DIR}/volumes/functions/api/index.ts"
 cp "${ROOT_DIR}/supabase/functions/api/config.toml" "${OUT_DIR}/volumes/functions/api/config.toml"
 
-tar -C "${OUT_DIR}" -czf "${TARBALL}" volumes/functions/api
+COPYFILE_DISABLE=1 tar --no-xattrs -C "${OUT_DIR}" -czf "${TARBALL}" volumes/functions/api
 
 echo "Packaged self-hosted Supabase function bundle:"
 echo "${TARBALL}"

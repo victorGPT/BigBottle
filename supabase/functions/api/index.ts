@@ -11,16 +11,9 @@ import {
   createClient,
   type SupabaseClient,
 } from "https://esm.sh/@supabase/supabase-js@2.57.4?target=deno";
-import { AwsClient } from "https://esm.sh/aws4fetch@1.0.20?target=deno";
-import { getAddress, getBytes, Interface, formatUnits, verifyTypedData } from "https://esm.sh/ethers@6.15.0?target=deno";
-import { SignJWT, jwtVerify } from "https://esm.sh/jose@5.2.4?target=deno";
-import { Address, Transaction } from "https://esm.sh/@vechain/sdk-core@2.0.7?target=deno";
-import {
-  ProviderInternalBaseWallet,
-  ThorClient,
-  VeChainProvider,
-  type TransactionReceipt,
-} from "https://esm.sh/@vechain/sdk-network@2.0.7?target=deno";
+import { AwsClient } from "npm:aws4fetch@1.0.20";
+import { getAddress, getBytes, Interface, formatUnits, verifyTypedData } from "npm:ethers@6.15.0";
+import { SignJWT, jwtVerify } from "npm:jose@5.2.4";
 
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
@@ -1365,7 +1358,7 @@ type SignRewardDistributionInput = {
 type RewardsChain = {
   signRewardDistributionTx: (input: SignRewardDistributionInput) => Promise<{ txHash: string; rawTx: string }>;
   broadcastRawTransaction: (rawTx: string) => Promise<{ txHash: string }>;
-  getTransactionReceipt: (txHash: string) => Promise<TransactionReceipt | null>;
+  getTransactionReceipt: (txHash: string) => Promise<{ reverted?: boolean } | null>;
   getRewardPoolBalance: () => Promise<{
     availableFundsWei: bigint;
     appId: string;
@@ -1499,6 +1492,29 @@ function defaultVechainNodeUrl(network: "testnet" | "mainnet"): string {
   return network === "mainnet" ? "https://mainnet.vechain.org" : "https://testnet.vechain.org";
 }
 
+let vechainSdkPromise: Promise<{
+  Address: any;
+  Transaction: any;
+  ProviderInternalBaseWallet: any;
+  ThorClient: any;
+  VeChainProvider: any;
+}> | null = null;
+
+async function loadVechainSdk() {
+  if (!vechainSdkPromise) {
+    const coreSpec = "npm:" + "@vechain/sdk-core@2.0.7";
+    const networkSpec = "npm:" + "@vechain/sdk-network@2.0.7";
+    vechainSdkPromise = Promise.all([import(coreSpec), import(networkSpec)]).then(([core, network]) => ({
+      Address: core.Address,
+      Transaction: core.Transaction,
+      ProviderInternalBaseWallet: network.ProviderInternalBaseWallet,
+      ThorClient: network.ThorClient,
+      VeChainProvider: network.VeChainProvider,
+    }));
+  }
+  return vechainSdkPromise;
+}
+
 function requireRewardsPoolConfig(config: AppConfig) {
   const nodeUrl = config.VECHAIN_NODE_URL ?? defaultVechainNodeUrl(config.VECHAIN_NETWORK);
   if (!config.VEBETTER_APP_ID || !isBytes32Hex(config.VEBETTER_APP_ID)) throw new Error("rewards_unconfigured");
@@ -1578,11 +1594,12 @@ function createRewardsChain(config: AppConfig): RewardsChain {
     };
   }
 
-  let thorClient: ThorClient | null = null;
+  let thorClient: any | null = null;
   let signerContext: any | null = null;
 
-  function getThorClient(): ThorClient {
+  async function getThorClient() {
     if (thorClient) return thorClient;
+    const { ThorClient } = await loadVechainSdk();
     thorClient = ThorClient.at(config.VECHAIN_NODE_URL ?? defaultVechainNodeUrl(config.VECHAIN_NETWORK), {
       isPollingEnabled: false,
     });
@@ -1590,6 +1607,7 @@ function createRewardsChain(config: AppConfig): RewardsChain {
   }
 
   async function createSignerContext() {
+    const { Address, ProviderInternalBaseWallet, VeChainProvider } = await loadVechainSdk();
     const cfg = requireRewardsChainConfig(config);
     const pkBytes = getBytes(cfg.distributorPrivateKey);
     if (pkBytes.length !== 32) throw new Error("rewards_unconfigured");
@@ -1598,7 +1616,7 @@ function createRewardsChain(config: AppConfig): RewardsChain {
       [{ address: signerAddress, privateKey: pkBytes }],
       { gasPayer: { gasPayerServiceUrl: cfg.feeDelegationUrl } },
     );
-    const provider = new VeChainProvider(getThorClient(), wallet, true);
+    const provider = new VeChainProvider(await getThorClient(), wallet, true);
     const signer = await provider.getSigner(signerAddress);
     if (!signer) throw new Error("rewards_unconfigured");
     return { cfg, signer };
@@ -1636,15 +1654,16 @@ function createRewardsChain(config: AppConfig): RewardsChain {
         value: 0,
         comment: `BigBottle claim ${input.claimId}`,
       });
+      const { Transaction } = await loadVechainSdk();
       const txHash = Transaction.decode(getBytes(rawTx), true).getTransactionHash().toString();
       return { txHash, rawTx };
     },
     async broadcastRawTransaction(rawTx) {
-      const res = await getThorClient().transactions.sendRawTransaction(rawTx);
+      const res = await (await getThorClient()).transactions.sendRawTransaction(rawTx);
       return { txHash: res.id };
     },
     async getTransactionReceipt(txHash) {
-      return await getThorClient().transactions.getTransactionReceipt(txHash);
+      return await (await getThorClient()).transactions.getTransactionReceipt(txHash);
     },
     async getRewardPoolBalance() {
       const cfg = requireRewardsPoolConfig(config);

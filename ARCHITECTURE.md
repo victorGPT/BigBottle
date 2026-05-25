@@ -384,6 +384,7 @@ Config:
   - `deploy/aws-supabase/README.md`: AWS host bootstrap and self-hosted function deployment notes.
   - `deploy/aws-supabase/functions.env.example`: BigBottle function secret checklist for self-hosted Supabase.
   - `scripts/ci/package_self_hosted_supabase_api.sh`: packages `supabase/functions/api` into a `volumes/functions/api` tarball for self-hosted Supabase.
+  - Self-hosted Edge Runtime executes function source directly, so runtime imports that are not Deno std/Supabase HTTP imports use Deno `npm:` specifiers instead of `esm.sh` bundles that can expose missing `.d.ts` dependencies at worker boot.
 - For easy frontend domain changes, keep `CORS_ORIGIN='*'` (default).
 - Phase 2 rewards env vars (same semantics as `apps/api`):
   - `REWARDS_MODE`
