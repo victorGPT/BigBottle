@@ -195,6 +195,10 @@ File: `apps/web/src/app/pages/ResultPage.tsx`
   - `points_base`: receipt base points before achievement bonuses
   - `points_multiplier`: applied achievement multiplier
   - `points_bonus_sources`: JSON source snapshot such as GM-NFT, VeBetterDAO voter, or legacy final-points-only receipts
+- Receipt verification stores analyzer telemetry on the submission row:
+  - `analyzer_provider` / `analyzer_model`: model route used for receipt extraction
+  - `analyzer_usage`: raw model token usage object when the provider returns one
+  - `analyzer_image`: image bytes/content-type metadata used for cost debugging
 
 ### Client Image Compression
 File: `apps/web/src/util/receiptImageCompression.ts`
@@ -235,6 +239,7 @@ File: `apps/api/src/config.ts`
 - `S3_BUCKET`
 - `S3_PRESIGN_EXPIRES_SECONDS` (default `300`)
 - `RECEIPT_ANALYZER_PROVIDER` (`dify` or `temporal`, default `dify`)
+- Supabase Edge Function supports direct `RECEIPT_ANALYZER_PROVIDER=gemini` or `RECEIPT_ANALYZER_PROVIDER=siliconflow` receipt analysis when bypassing the Dify-compatible bridge.
 - `DIFY_MODE` (`mock` or `workflow`, default `workflow`)
 - `DIFY_API_URL` / `DIFY_API_KEY` / `DIFY_WORKFLOW_ID` (required when `DIFY_MODE=workflow`)
 - `DIFY_IMAGE_INPUT_KEY` (default `image_url`)
@@ -255,7 +260,7 @@ File: `apps/api/src/config.ts`
 - `RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE` (default `1024`)
 - `RECEIPT_MODEL_IMAGE_JPEG_QUALITY` (default `78`)
 - `SILICONFLOW_API_KEY` (required when `RECEIPT_MODEL_PROVIDER=siliconflow`)
-- `SILICONFLOW_MODEL` (default `Qwen/Qwen3.6-35B-A3B`)
+- `SILICONFLOW_MODEL` (default `Qwen/Qwen3-VL-30B-A3B-Instruct`)
 - `SILICONFLOW_API_BASE_URL` (default `https://api.siliconflow.cn/v1`)
 - `SILICONFLOW_TIMEOUT_MS` (default `30000`)
 - `ANALYZER_BRIDGE_PORT` (default `8084`)
@@ -374,6 +379,12 @@ Config:
   - `scripts/setup-supabase.sh` delegates interactive deploys to the canonical deploy script instead of issuing a raw deploy directly.
   - `.github/workflows/supabase-api-public-routes-guard.yml` runs scheduled drift checks against the public API endpoint.
   - `.github/workflows/supabase-api-deploy-guard-ci.yml` runs the shell guard tests plus the static canonical-deploy check on PRs.
+- AWS self-hosted migration assets:
+  - `docs/aws-supabase-migration-plan.md`: EC2/Docker Compose self-hosted Supabase migration, cutover, and rollback plan.
+  - `deploy/aws-supabase/README.md`: AWS host bootstrap and self-hosted function deployment notes.
+  - `deploy/aws-supabase/functions.env.example`: BigBottle function secret checklist for self-hosted Supabase.
+  - `scripts/ci/package_self_hosted_supabase_api.sh`: packages `supabase/functions/api` into a `volumes/functions/api` tarball for self-hosted Supabase.
+  - Self-hosted Edge Runtime executes function source directly, so runtime imports that are not Deno std/Supabase HTTP imports use Deno `npm:` specifiers instead of `esm.sh` bundles that can expose missing `.d.ts` dependencies at worker boot.
 - For easy frontend domain changes, keep `CORS_ORIGIN='*'` (default).
 - Phase 2 rewards env vars (same semantics as `apps/api`):
   - `REWARDS_MODE`
@@ -421,6 +432,10 @@ Tables:
   - `retinfo_is_availd text`
   - `time_threshold text`
   - `points_total integer not null default 0`
+  - `analyzer_provider text`
+  - `analyzer_model text`
+  - `analyzer_usage jsonb`
+  - `analyzer_image jsonb`
   - `verified_at timestamptz`
   - `created_at timestamptz default now()`
   - `updated_at timestamptz default now()`
@@ -468,6 +483,18 @@ Constraints:
 
 ### `supabase/migrations/202605180003_reprice_unsettled_receipt_points.sql`
 - Reprices existing verified receipt submissions that have not been attached to a `pending`, `submitted`, or `confirmed` reward claim source. These unsettled receipts are recalculated with `points_base <= 20` while preserving their stored multiplier.
+
+### `supabase/migrations/20260525104737_receipt_analyzer_usage.sql`
+Columns added to `public.receipt_submissions`:
+- `analyzer_provider text`
+- `analyzer_model text`
+- `analyzer_usage jsonb`
+- `analyzer_image jsonb`
+
+Constraints / indexes:
+- `analyzer_provider` must be `dify`, `gemini`, `siliconflow`, `temporal`, or `null`
+- `analyzer_usage` and `analyzer_image` must be JSON objects when present
+- Index on `(analyzer_provider, created_at desc)` for usage/cost reporting
 
 ### `supabase/migrations/20260208_z_account_summary.sql`
 Functions:

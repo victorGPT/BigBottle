@@ -11,16 +11,9 @@ import {
   createClient,
   type SupabaseClient,
 } from "https://esm.sh/@supabase/supabase-js@2.57.4?target=deno";
-import { AwsClient } from "https://esm.sh/aws4fetch@1.0.20?target=deno";
-import { getAddress, getBytes, Interface, formatUnits, verifyTypedData } from "https://esm.sh/ethers@6.15.0?target=deno";
-import { SignJWT, jwtVerify } from "https://esm.sh/jose@5.2.4?target=deno";
-import { Address, Transaction } from "https://esm.sh/@vechain/sdk-core@2.0.7?target=deno";
-import {
-  ProviderInternalBaseWallet,
-  ThorClient,
-  VeChainProvider,
-  type TransactionReceipt,
-} from "https://esm.sh/@vechain/sdk-network@2.0.7?target=deno";
+import { AwsClient } from "npm:aws4fetch@1.0.20";
+import { getAddress, getBytes, Interface, formatUnits, verifyTypedData } from "npm:ethers@6.15.0";
+import { SignJWT, jwtVerify } from "npm:jose@5.2.4";
 
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
@@ -51,12 +44,22 @@ type AppConfig = {
   AWS_ACCESS_KEY_ID: string;
   AWS_SECRET_ACCESS_KEY: string;
   AWS_SESSION_TOKEN?: string;
+  RECEIPT_ANALYZER_PROVIDER: "dify" | "gemini" | "siliconflow";
   DIFY_MODE: "mock" | "workflow";
   DIFY_API_URL?: string;
   DIFY_API_KEY?: string;
   DIFY_WORKFLOW_ID?: string;
   DIFY_IMAGE_INPUT_KEY: string;
   DIFY_TIMEOUT_MS: number;
+  GEMINI_API_KEY?: string;
+  GEMINI_MODEL: string;
+  GEMINI_API_BASE_URL: string;
+  GEMINI_TIMEOUT_MS: number;
+  GEMINI_MAX_IMAGE_BYTES: number;
+  SILICONFLOW_API_KEY?: string;
+  SILICONFLOW_MODEL: string;
+  SILICONFLOW_API_BASE_URL: string;
+  SILICONFLOW_TIMEOUT_MS: number;
   REWARDS_MODE: "mock" | "chain";
   VECHAIN_NETWORK: "testnet" | "mainnet";
   VECHAIN_NODE_URL?: string;
@@ -92,6 +95,20 @@ function loadConfig(): AppConfig {
   const DIFY_WORKFLOW_ID = envString("DIFY_WORKFLOW_ID");
   const DIFY_IMAGE_INPUT_KEY = envString("DIFY_IMAGE_INPUT_KEY") ?? "image_url";
   const DIFY_TIMEOUT_MS = Number(envString("DIFY_TIMEOUT_MS") ?? "20000");
+  const RECEIPT_ANALYZER_PROVIDER_RAW = (envString("RECEIPT_ANALYZER_PROVIDER") ?? "dify").toLowerCase();
+  const RECEIPT_ANALYZER_PROVIDER: "dify" | "gemini" | "siliconflow" =
+    RECEIPT_ANALYZER_PROVIDER_RAW === "gemini" || RECEIPT_ANALYZER_PROVIDER_RAW === "siliconflow"
+      ? RECEIPT_ANALYZER_PROVIDER_RAW
+      : "dify";
+  const GEMINI_API_KEY = envString("GEMINI_API_KEY") ?? envString("GOOGLE_API_KEY");
+  const GEMINI_MODEL = envString("GEMINI_MODEL") ?? "gemini-2.5-flash";
+  const GEMINI_API_BASE_URL = envString("GEMINI_API_BASE_URL") ?? "https://generativelanguage.googleapis.com";
+  const GEMINI_TIMEOUT_MS = Number(envString("GEMINI_TIMEOUT_MS") ?? "30000");
+  const GEMINI_MAX_IMAGE_BYTES = Number(envString("GEMINI_MAX_IMAGE_BYTES") ?? "10485760");
+  const SILICONFLOW_API_KEY = envString("SILICONFLOW_API_KEY");
+  const SILICONFLOW_MODEL = envString("SILICONFLOW_MODEL") ?? "Qwen/Qwen3-VL-30B-A3B-Instruct";
+  const SILICONFLOW_API_BASE_URL = envString("SILICONFLOW_API_BASE_URL") ?? "https://api.siliconflow.cn/v1";
+  const SILICONFLOW_TIMEOUT_MS = Number(envString("SILICONFLOW_TIMEOUT_MS") ?? "30000");
   const REWARDS_MODE_RAW = (envString("REWARDS_MODE") ?? "mock").toLowerCase();
   const REWARDS_MODE: "mock" | "chain" = REWARDS_MODE_RAW === "chain" ? "chain" : "mock";
   const VECHAIN_NETWORK_RAW = (envString("VECHAIN_NETWORK") ?? "testnet").toLowerCase();
@@ -124,10 +141,20 @@ function loadConfig(): AppConfig {
   if (!Number.isFinite(DIFY_TIMEOUT_MS) || DIFY_TIMEOUT_MS <= 0) {
     missing.push("DIFY_TIMEOUT_MS");
   }
-  if (DIFY_MODE === "workflow") {
+  if (RECEIPT_ANALYZER_PROVIDER === "dify" && DIFY_MODE === "workflow") {
     if (!DIFY_API_URL) missing.push("DIFY_API_URL");
     if (!DIFY_API_KEY) missing.push("DIFY_API_KEY");
     if (!DIFY_WORKFLOW_ID) missing.push("DIFY_WORKFLOW_ID");
+  }
+  if (RECEIPT_ANALYZER_PROVIDER === "gemini") {
+    if (!GEMINI_API_KEY) missing.push("GEMINI_API_KEY");
+    if (!Number.isFinite(GEMINI_TIMEOUT_MS) || GEMINI_TIMEOUT_MS <= 0) missing.push("GEMINI_TIMEOUT_MS");
+    if (!Number.isFinite(GEMINI_MAX_IMAGE_BYTES) || GEMINI_MAX_IMAGE_BYTES <= 0) missing.push("GEMINI_MAX_IMAGE_BYTES");
+  }
+  if (RECEIPT_ANALYZER_PROVIDER === "siliconflow") {
+    if (!SILICONFLOW_API_KEY) missing.push("SILICONFLOW_API_KEY");
+    if (!Number.isFinite(SILICONFLOW_TIMEOUT_MS) || SILICONFLOW_TIMEOUT_MS <= 0) missing.push("SILICONFLOW_TIMEOUT_MS");
+    if (!Number.isFinite(GEMINI_MAX_IMAGE_BYTES) || GEMINI_MAX_IMAGE_BYTES <= 0) missing.push("GEMINI_MAX_IMAGE_BYTES");
   }
   if (REWARDS_MODE === "chain") {
     if (!VEBETTER_APP_ID) missing.push("VEBETTER_APP_ID");
@@ -156,12 +183,22 @@ function loadConfig(): AppConfig {
     AWS_ACCESS_KEY_ID,
     AWS_SECRET_ACCESS_KEY,
     AWS_SESSION_TOKEN: envString("AWS_SESSION_TOKEN"),
+    RECEIPT_ANALYZER_PROVIDER,
     DIFY_MODE,
     DIFY_API_URL,
     DIFY_API_KEY,
     DIFY_WORKFLOW_ID,
     DIFY_IMAGE_INPUT_KEY,
     DIFY_TIMEOUT_MS,
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
+    GEMINI_API_BASE_URL,
+    GEMINI_TIMEOUT_MS,
+    GEMINI_MAX_IMAGE_BYTES,
+    SILICONFLOW_API_KEY,
+    SILICONFLOW_MODEL,
+    SILICONFLOW_API_BASE_URL,
+    SILICONFLOW_TIMEOUT_MS,
     REWARDS_MODE,
     VECHAIN_NETWORK,
     VECHAIN_NODE_URL,
@@ -273,6 +310,10 @@ type DbReceiptSubmission = {
   receipt_fingerprint: string | null;
   rejection_code: string | null;
   duplicate_of: string | null;
+  analyzer_provider: string | null;
+  analyzer_model: string | null;
+  analyzer_usage: unknown | null;
+  analyzer_image: unknown | null;
   verified_at: string | null;
   created_at: string;
   updated_at: string;
@@ -1317,7 +1358,7 @@ type SignRewardDistributionInput = {
 type RewardsChain = {
   signRewardDistributionTx: (input: SignRewardDistributionInput) => Promise<{ txHash: string; rawTx: string }>;
   broadcastRawTransaction: (rawTx: string) => Promise<{ txHash: string }>;
-  getTransactionReceipt: (txHash: string) => Promise<TransactionReceipt | null>;
+  getTransactionReceipt: (txHash: string) => Promise<{ reverted?: boolean } | null>;
   getRewardPoolBalance: () => Promise<{
     availableFundsWei: bigint;
     appId: string;
@@ -1451,6 +1492,29 @@ function defaultVechainNodeUrl(network: "testnet" | "mainnet"): string {
   return network === "mainnet" ? "https://mainnet.vechain.org" : "https://testnet.vechain.org";
 }
 
+let vechainSdkPromise: Promise<{
+  Address: any;
+  Transaction: any;
+  ProviderInternalBaseWallet: any;
+  ThorClient: any;
+  VeChainProvider: any;
+}> | null = null;
+
+async function loadVechainSdk() {
+  if (!vechainSdkPromise) {
+    const coreSpec = "npm:" + "@vechain/sdk-core@2.0.7";
+    const networkSpec = "npm:" + "@vechain/sdk-network@2.0.7";
+    vechainSdkPromise = Promise.all([import(coreSpec), import(networkSpec)]).then(([core, network]) => ({
+      Address: core.Address,
+      Transaction: core.Transaction,
+      ProviderInternalBaseWallet: network.ProviderInternalBaseWallet,
+      ThorClient: network.ThorClient,
+      VeChainProvider: network.VeChainProvider,
+    }));
+  }
+  return vechainSdkPromise;
+}
+
 function requireRewardsPoolConfig(config: AppConfig) {
   const nodeUrl = config.VECHAIN_NODE_URL ?? defaultVechainNodeUrl(config.VECHAIN_NETWORK);
   if (!config.VEBETTER_APP_ID || !isBytes32Hex(config.VEBETTER_APP_ID)) throw new Error("rewards_unconfigured");
@@ -1530,11 +1594,12 @@ function createRewardsChain(config: AppConfig): RewardsChain {
     };
   }
 
-  let thorClient: ThorClient | null = null;
+  let thorClient: any | null = null;
   let signerContext: any | null = null;
 
-  function getThorClient(): ThorClient {
+  async function getThorClient() {
     if (thorClient) return thorClient;
+    const { ThorClient } = await loadVechainSdk();
     thorClient = ThorClient.at(config.VECHAIN_NODE_URL ?? defaultVechainNodeUrl(config.VECHAIN_NETWORK), {
       isPollingEnabled: false,
     });
@@ -1542,6 +1607,7 @@ function createRewardsChain(config: AppConfig): RewardsChain {
   }
 
   async function createSignerContext() {
+    const { Address, ProviderInternalBaseWallet, VeChainProvider } = await loadVechainSdk();
     const cfg = requireRewardsChainConfig(config);
     const pkBytes = getBytes(cfg.distributorPrivateKey);
     if (pkBytes.length !== 32) throw new Error("rewards_unconfigured");
@@ -1550,7 +1616,7 @@ function createRewardsChain(config: AppConfig): RewardsChain {
       [{ address: signerAddress, privateKey: pkBytes }],
       { gasPayer: { gasPayerServiceUrl: cfg.feeDelegationUrl } },
     );
-    const provider = new VeChainProvider(getThorClient(), wallet, true);
+    const provider = new VeChainProvider(await getThorClient(), wallet, true);
     const signer = await provider.getSigner(signerAddress);
     if (!signer) throw new Error("rewards_unconfigured");
     return { cfg, signer };
@@ -1588,15 +1654,16 @@ function createRewardsChain(config: AppConfig): RewardsChain {
         value: 0,
         comment: `BigBottle claim ${input.claimId}`,
       });
+      const { Transaction } = await loadVechainSdk();
       const txHash = Transaction.decode(getBytes(rawTx), true).getTransactionHash().toString();
       return { txHash, rawTx };
     },
     async broadcastRawTransaction(rawTx) {
-      const res = await getThorClient().transactions.sendRawTransaction(rawTx);
+      const res = await (await getThorClient()).transactions.sendRawTransaction(rawTx);
       return { txHash: res.id };
     },
     async getTransactionReceipt(txHash) {
-      return await getThorClient().transactions.getTransactionReceipt(txHash);
+      return await (await getThorClient()).transactions.getTransactionReceipt(txHash);
     },
     async getRewardPoolBalance() {
       const cfg = requireRewardsPoolConfig(config);
@@ -1786,6 +1853,153 @@ type DifyReceiptPayload = {
   user_id?: unknown;
 };
 
+const RECEIPT_ANALYSIS_PROMPT = `Validate and extract a retail receipt. Return JSON only.
+
+Reject with {"retinfoIsAvaild":"false"} if any condition is true:
+- not a POS, cash-register, machine-printed, or digital business receipt
+- core transaction text is handwritten
+- missing items+prices+total, or missing store/logo/address/phone/transaction id
+- receipt time is unreadable
+- currency unit/symbol is RP, Rp, or Rp.
+
+If no beverage items are present, reject with {"retinfoIsAvaild":"false"}.
+If valid, extract every beverage item, including water, tea, soda, coffee, alcohol, juice, and similar drinks.
+
+Success JSON:
+{"drinkList":[{"retinfoDrinkName":"<name>","retinfoDrinkCapacity":<integer_ml_or_0>,"retinfoDrinkAmount":<integer_qty>}],"retinfoIsAvaild":"true","retinfoReceiptTime":"<YYYY-MM-DD HH:MM:SS>"}
+
+Field rules:
+- Normalize receipt time to YYYY-MM-DD HH:MM:SS.
+- Capacity is integer ml; use 0 when missing or illegible.
+- Quantity is integer; use 1 when not shown.
+- No markdown, prose, or extra keys.`;
+
+const receiptOutputSchema = {
+  type: "OBJECT",
+  properties: {
+    drinkList: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          retinfoDrinkName: { type: "STRING" },
+          retinfoDrinkCapacity: { type: "INTEGER" },
+          retinfoDrinkAmount: { type: "INTEGER" },
+        },
+        required: ["retinfoDrinkName", "retinfoDrinkCapacity", "retinfoDrinkAmount"],
+      },
+    },
+    retinfoIsAvaild: { type: "STRING" },
+    retinfoReceiptTime: { type: "STRING" },
+  },
+  required: ["retinfoIsAvaild"],
+};
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function stripJsonFence(text: string): string {
+  const trimmed = text.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  return fenced?.[1] ? fenced[1].trim() : trimmed;
+}
+
+function computeReceiptTimeThreshold(receiptTime: unknown, now = new Date()): "true" | "false" {
+  if (typeof receiptTime !== "string") return "false";
+  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(receiptTime);
+  if (!match) return "false";
+  const [, yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw] = match;
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  const second = Number(secondRaw);
+  const parsed = new Date(year, month - 1, day, hour, minute, second);
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day ||
+    parsed.getHours() !== hour ||
+    parsed.getMinutes() !== minute ||
+    parsed.getSeconds() !== second
+  ) {
+    return "false";
+  }
+  const receiptMs = parsed.getTime();
+  return receiptMs >= now.getTime() - 7 * 24 * 60 * 60 * 1000 &&
+    receiptMs <= now.getTime() + 12 * 60 * 60 * 1000
+    ? "true"
+    : "false";
+}
+
+function hasExtractedDrinkItems(drinkList: unknown): boolean {
+  return (
+    Array.isArray(drinkList) &&
+    drinkList.some(
+      (item) => isRecord(item) && typeof item.retinfoDrinkName === "string" && item.retinfoDrinkName.trim() !== "",
+    )
+  );
+}
+
+function enforceReceiptPayloadBusinessRules(payload: DifyReceiptPayload): DifyReceiptPayload {
+  const isValid =
+    typeof payload.retinfoIsAvaild === "string"
+      ? payload.retinfoIsAvaild.trim().toLowerCase() === "true"
+      : payload.retinfoIsAvaild === true;
+  if (isValid && !hasExtractedDrinkItems(payload.drinkList)) {
+    return { retinfoIsAvaild: "false" };
+  }
+  return payload;
+}
+
+type ReceiptAnalyzerTelemetry = {
+  provider: AppConfig["RECEIPT_ANALYZER_PROVIDER"];
+  model: string | null;
+  usage: unknown | null;
+  image: Record<string, unknown> | null;
+};
+
+type ReceiptAnalyzerRunResult = {
+  raw: unknown;
+  telemetry: ReceiptAnalyzerTelemetry;
+};
+
+function receiptAnalyzerModel(config: AppConfig): string | null {
+  if (config.RECEIPT_ANALYZER_PROVIDER === "gemini") return config.GEMINI_MODEL;
+  if (config.RECEIPT_ANALYZER_PROVIDER === "siliconflow") return config.SILICONFLOW_MODEL;
+  return null;
+}
+
+function receiptAnalyzerTelemetry(
+  config: AppConfig,
+  patch: Partial<Omit<ReceiptAnalyzerTelemetry, "provider" | "model">> & {
+    model?: string | null;
+  } = {},
+): ReceiptAnalyzerTelemetry {
+  return {
+    provider: config.RECEIPT_ANALYZER_PROVIDER,
+    model: patch.model ?? receiptAnalyzerModel(config),
+    usage: patch.usage ?? null,
+    image: patch.image ?? null,
+  };
+}
+
+function receiptAnalyzerDbPatch(telemetry: ReceiptAnalyzerTelemetry | null) {
+  return {
+    analyzer_provider: telemetry?.provider ?? null,
+    analyzer_model: telemetry?.model ?? null,
+    analyzer_usage: telemetry?.usage ?? null,
+    analyzer_image: telemetry?.image ?? null,
+  };
+}
+
 async function runDify(config: AppConfig, input: { imageUrl: string; userRef: string }) {
   if (config.DIFY_MODE === "mock") {
     return {
@@ -1839,6 +2053,187 @@ async function runDify(config: AppConfig, input: { imageUrl: string; userRef: st
     throw new Error(`Dify request failed: ${res.status} ${res.statusText} ${text}`);
   }
   return res.json();
+}
+
+async function runGeminiReceiptAnalyzer(config: AppConfig, input: { imageUrl: string; userRef: string }): Promise<ReceiptAnalyzerRunResult> {
+  if (!config.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is required");
+  const imageRes = await fetch(input.imageUrl);
+  if (!imageRes.ok) {
+    throw new Error(`Receipt image fetch failed: ${imageRes.status} ${imageRes.statusText}`);
+  }
+  const mimeType = imageRes.headers.get("content-type")?.split(/[;,]/)[0]?.trim() || "image/jpeg";
+  const imageBytes = new Uint8Array(await imageRes.arrayBuffer());
+  if (imageBytes.byteLength > config.GEMINI_MAX_IMAGE_BYTES) {
+    throw new Error(`Receipt image exceeds ${config.GEMINI_MAX_IMAGE_BYTES} bytes`);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.GEMINI_TIMEOUT_MS);
+  const url = new URL(
+    `/v1beta/models/${encodeURIComponent(config.GEMINI_MODEL)}:generateContent`,
+    config.GEMINI_API_BASE_URL,
+  );
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": config.GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { inline_data: { mime_type: mimeType, data: bytesToBase64(imageBytes) } },
+              { text: RECEIPT_ANALYSIS_PROMPT },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: receiptOutputSchema,
+        },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gemini request failed: ${res.status} ${res.statusText} ${text}`);
+  }
+
+  const raw = await res.json();
+  const text = Array.isArray(raw?.candidates)
+    ? raw.candidates
+        .flatMap((candidate: any) => candidate?.content?.parts ?? [])
+        .map((part: any) => (typeof part?.text === "string" ? part.text : ""))
+        .join("")
+        .trim()
+    : "";
+  if (!text) throw new Error("Gemini response did not include text output");
+  const parsed = JSON.parse(stripJsonFence(text));
+  if (!isRecord(parsed)) throw new Error("Gemini receipt payload is not an object");
+  const payload = enforceReceiptPayloadBusinessRules(parsed as DifyReceiptPayload);
+  const rawPayload = {
+    ...payload,
+    timeThreshold: computeReceiptTimeThreshold(payload.retinfoReceiptTime),
+    user_id: input.userRef,
+  };
+  return {
+    raw: rawPayload,
+    telemetry: receiptAnalyzerTelemetry(config, {
+      usage: isRecord(raw?.usageMetadata) ? raw.usageMetadata : null,
+      image: {
+        mime_type: mimeType,
+        input_bytes: imageBytes.byteLength,
+        max_image_bytes: config.GEMINI_MAX_IMAGE_BYTES,
+      },
+    }),
+  };
+}
+
+async function runSiliconFlowReceiptAnalyzer(config: AppConfig, input: { imageUrl: string; userRef: string }): Promise<ReceiptAnalyzerRunResult> {
+  if (!config.SILICONFLOW_API_KEY) throw new Error("SILICONFLOW_API_KEY is required");
+  const imageRes = await fetch(input.imageUrl);
+  if (!imageRes.ok) {
+    throw new Error(`Receipt image fetch failed: ${imageRes.status} ${imageRes.statusText}`);
+  }
+  const mimeType = imageRes.headers.get("content-type")?.split(/[;,]/)[0]?.trim() || "image/jpeg";
+  const imageBytes = new Uint8Array(await imageRes.arrayBuffer());
+  if (imageBytes.byteLength > config.GEMINI_MAX_IMAGE_BYTES) {
+    throw new Error(`Receipt image exceeds ${config.GEMINI_MAX_IMAGE_BYTES} bytes`);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.SILICONFLOW_TIMEOUT_MS);
+  const baseUrl = config.SILICONFLOW_API_BASE_URL.endsWith("/")
+    ? config.SILICONFLOW_API_BASE_URL
+    : `${config.SILICONFLOW_API_BASE_URL}/`;
+  const url = new URL("chat/completions", baseUrl);
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${config.SILICONFLOW_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: config.SILICONFLOW_MODEL,
+        messages: [
+          { role: "system", content: RECEIPT_ANALYSIS_PROMPT },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Analyze the receipt image." },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:${mimeType};base64,${bytesToBase64(imageBytes)}`,
+                },
+              },
+            ],
+          },
+        ],
+        stream: false,
+        max_tokens: 4096,
+        temperature: 0,
+        response_format: { type: "json_object" },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`SiliconFlow request failed: ${res.status} ${res.statusText} ${text}`);
+  }
+
+  const raw = await res.json();
+  const content = raw?.choices?.[0]?.message?.content;
+  const text = typeof content === "string" ? content.trim() : "";
+  if (!text) throw new Error("SiliconFlow response did not include text output");
+  const parsed = JSON.parse(stripJsonFence(text));
+  if (!isRecord(parsed)) throw new Error("SiliconFlow receipt payload is not an object");
+  const payload = enforceReceiptPayloadBusinessRules(parsed as DifyReceiptPayload);
+  const rawPayload = {
+    ...payload,
+    timeThreshold: computeReceiptTimeThreshold(payload.retinfoReceiptTime),
+    user_id: input.userRef,
+  };
+  return {
+    raw: rawPayload,
+    telemetry: receiptAnalyzerTelemetry(config, {
+      usage: isRecord(raw?.usage) ? raw.usage : null,
+      image: {
+        mime_type: mimeType,
+        input_bytes: imageBytes.byteLength,
+        max_image_bytes: config.GEMINI_MAX_IMAGE_BYTES,
+      },
+    }),
+  };
+}
+
+async function runReceiptAnalyzer(config: AppConfig, input: { imageUrl: string; userRef: string }): Promise<ReceiptAnalyzerRunResult> {
+  if (config.RECEIPT_ANALYZER_PROVIDER === "gemini") {
+    return await runGeminiReceiptAnalyzer(config, input);
+  }
+  if (config.RECEIPT_ANALYZER_PROVIDER === "siliconflow") {
+    return await runSiliconFlowReceiptAnalyzer(config, input);
+  }
+  return {
+    raw: await runDify(config, input),
+    telemetry: receiptAnalyzerTelemetry(config),
+  };
 }
 
 function extractDifyReceiptPayload(raw: unknown): DifyReceiptPayload | null {
@@ -2607,6 +3002,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     const verifyInBackground = async () => {
       let updatedForLog: DbReceiptSubmission | null = null;
       let imageBytesForLog: number | null = null;
+      let analyzerTelemetryForLog: ReceiptAnalyzerTelemetry | null = null;
       let errorForLog: { message: string; code: string | null } | null = null;
 
       try {
@@ -2623,6 +3019,12 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         return;
       }
       imageBytesForLog = meta.contentLength;
+      analyzerTelemetryForLog = receiptAnalyzerTelemetry(config, {
+        image: {
+          source_bytes: meta.contentLength,
+          content_type: claimed.image_content_type,
+        },
+      });
 
       const tPresignGet = performance.now();
       const getUrl = await presignGetObject({
@@ -2635,7 +3037,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       timing.s3_presign_get_ms = Math.round(performance.now() - tPresignGet);
 
       const tDify = performance.now();
-      const difyRaw = await runDify(config, { imageUrl: getUrl.url, userRef: authed.wallet });
+      const analyzerResult = await runReceiptAnalyzer(config, { imageUrl: getUrl.url, userRef: authed.wallet });
+      const difyRaw = analyzerResult.raw;
+      analyzerTelemetryForLog = analyzerResult.telemetry;
       timing.dify_ms = Math.round(performance.now() - tDify);
 
       const tExtract = performance.now();
@@ -2647,6 +3051,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         const updated = await repo.updateSubmission(claimed.id, {
           status: "rejected",
           dify_raw: difyRaw as any,
+          ...receiptAnalyzerDbPatch(analyzerTelemetryForLog),
           points_base: 0,
           points_multiplier: 1,
           points_bonus_sources: [],
@@ -2735,6 +3140,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           status: finalStatus,
           dify_raw: difyRaw as any,
           dify_drink_list: (payload.drinkList ?? null) as any,
+          ...receiptAnalyzerDbPatch(analyzerTelemetryForLog),
           receipt_time_raw: receiptTimeRaw,
           retinfo_is_availd: retinfoIsAvaild,
           time_threshold: timeThreshold,
@@ -2755,6 +3161,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
             status: "rejected",
             dify_raw: difyRaw as any,
             dify_drink_list: (payload.drinkList ?? null) as any,
+            ...receiptAnalyzerDbPatch(analyzerTelemetryForLog),
             receipt_time_raw: receiptTimeRaw,
             retinfo_is_availd: retinfoIsAvaild,
             time_threshold: timeThreshold,
@@ -2818,6 +3225,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
           message: err instanceof Error ? err.message : String(err),
           at: new Date().toISOString(),
         } as any,
+        ...receiptAnalyzerDbPatch(analyzerTelemetryForLog),
         points_base: 0,
         points_multiplier: 1,
         points_bonus_sources: [],
@@ -2852,6 +3260,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         image_bytes: imageBytesForLog,
         timing_ms: timing,
         error: errorForLog,
+        analyzer: analyzerTelemetryForLog,
         dify_mode: config.DIFY_MODE,
       });
     }

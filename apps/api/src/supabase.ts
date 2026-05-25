@@ -36,6 +36,10 @@ export type DbReceiptSubmission = {
   receipt_fingerprint: string | null;
   rejection_code: string | null;
   duplicate_of: string | null;
+  analyzer_provider: string | null;
+  analyzer_model: string | null;
+  analyzer_usage: unknown | null;
+  analyzer_image: unknown | null;
   verified_at: string | null;
   created_at: string;
   updated_at: string;
