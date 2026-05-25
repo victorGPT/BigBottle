@@ -113,7 +113,7 @@ function loadConfig(): AppConfig {
   const GEMINI_TIMEOUT_MS = Number(envString("GEMINI_TIMEOUT_MS") ?? "30000");
   const GEMINI_MAX_IMAGE_BYTES = Number(envString("GEMINI_MAX_IMAGE_BYTES") ?? "10485760");
   const SILICONFLOW_API_KEY = envString("SILICONFLOW_API_KEY");
-  const SILICONFLOW_MODEL = envString("SILICONFLOW_MODEL") ?? "Qwen/Qwen3-VL-32B-Instruct";
+  const SILICONFLOW_MODEL = envString("SILICONFLOW_MODEL") ?? "Qwen/Qwen3-VL-30B-A3B-Instruct";
   const SILICONFLOW_API_BASE_URL = envString("SILICONFLOW_API_BASE_URL") ?? "https://api.siliconflow.cn/v1";
   const SILICONFLOW_TIMEOUT_MS = Number(envString("SILICONFLOW_TIMEOUT_MS") ?? "30000");
   const REWARDS_MODE_RAW = (envString("REWARDS_MODE") ?? "mock").toLowerCase();

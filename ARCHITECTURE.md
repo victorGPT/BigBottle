@@ -256,7 +256,7 @@ File: `apps/api/src/config.ts`
 - `RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE` (default `1024`)
 - `RECEIPT_MODEL_IMAGE_JPEG_QUALITY` (default `78`)
 - `SILICONFLOW_API_KEY` (required when `RECEIPT_MODEL_PROVIDER=siliconflow`)
-- `SILICONFLOW_MODEL` (default `Qwen/Qwen3-VL-32B-Instruct`)
+- `SILICONFLOW_MODEL` (default `Qwen/Qwen3-VL-30B-A3B-Instruct`)
 - `SILICONFLOW_API_BASE_URL` (default `https://api.siliconflow.cn/v1`)
 - `SILICONFLOW_TIMEOUT_MS` (default `30000`)
 - `ANALYZER_BRIDGE_PORT` (default `8084`)

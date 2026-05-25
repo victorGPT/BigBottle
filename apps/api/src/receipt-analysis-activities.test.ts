@@ -180,7 +180,7 @@ describe('receipt analysis activities', () => {
         RECEIPT_MODEL_IMAGE_MAX_LONG_EDGE: 1024,
         RECEIPT_MODEL_IMAGE_JPEG_QUALITY: 78,
         SILICONFLOW_API_KEY: 'siliconflow-key',
-        SILICONFLOW_MODEL: 'Qwen/Qwen3-VL-32B-Instruct',
+        SILICONFLOW_MODEL: 'Qwen/Qwen3-VL-30B-A3B-Instruct',
         SILICONFLOW_API_BASE_URL: 'https://api.siliconflow.cn/v1',
         SILICONFLOW_TIMEOUT_MS: 30_000
       });
@@ -193,7 +193,7 @@ describe('receipt analysis activities', () => {
       const requestBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
 
       expect(payload.retinfoIsAvaild).toBe('true');
-      expect(requestBody.model).toBe('Qwen/Qwen3-VL-32B-Instruct');
+      expect(requestBody.model).toBe('Qwen/Qwen3-VL-30B-A3B-Instruct');
       expect(requestBody.response_format).toEqual({ type: 'json_object' });
       expect(requestBody).not.toHaveProperty('enable_thinking');
     } finally {
