@@ -186,6 +186,12 @@ Flow:
 5. Start background verification: `POST /submissions/:id/verify`.
 6. Navigate to `GET /result/:id` screen while `uploaded` / `verifying` submissions show a processing state.
 
+Observable scan behavior:
+- The capture screen shows localized reward rule copy before upload:
+  - VeBetterDAO voters: one successful chance per day within a week.
+  - Receipt uploads: at most two receipt uploads per user, including failed attempts; after two unsuccessful attempts no more are processed.
+  - Non-voters: at most two chances per week.
+
 ### Receipt Result UI
 File: `apps/web/src/app/pages/ResultPage.tsx`
 - Shows a dedicated branch for duplicates:

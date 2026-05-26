@@ -241,6 +241,16 @@ export default function ScanPage() {
 
           <div className="mt-5 text-center text-[11px] text-white/55">{t('scan.tipsTitle')}</div>
           <div className="mt-2 text-center text-xs text-white/70">{t('scan.tipsBody')}</div>
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
+            <div className="text-[10px] font-semibold tracking-[0.2em] text-emerald-200/70">
+              {t('scan.rulesTitle')}
+            </div>
+            <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-white/70">
+              <li>{t('scan.rules.voter')}</li>
+              <li>{t('scan.rules.upload')}</li>
+              <li>{t('scan.rules.nonVoter')}</li>
+            </ul>
+          </div>
         </div>
 
         {error && (
