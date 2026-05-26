@@ -1196,6 +1196,26 @@ async function getReceiptBonusSnapshot(input: {
   };
 }
 
+async function isVeBetterVoteUser(input: {
+  repo: ReturnType<typeof createRepo>;
+  userId: string;
+  wallet: string;
+  effectiveRoundId?: number;
+}): Promise<boolean> {
+  try {
+    const vebetterVote = await input.repo.getLatestUserBonusEligibility({
+      user_id: input.userId,
+      wallet_address: input.wallet,
+      bonus_type: "vebetter_vote_bonus",
+      ...(input.effectiveRoundId === undefined ? {} : { effective_round_id: input.effectiveRoundId }),
+    });
+    return Boolean(vebetterVote);
+  } catch (err) {
+    console.warn("vote_limit_lookup_failed", { wallet: input.wallet, userId: input.userId, error: String(err) });
+    return false;
+  }
+}
+
 function normalizeBoolString(input: string): string {
   return input.trim().toLowerCase();
 }
@@ -1213,7 +1233,9 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 const DAILY_SUCCESSFUL_RECEIPT_LIMIT = 1;
-const DAILY_TOTAL_UPLOAD_LIMIT = 6;
+const VOTER_DAILY_TOTAL_UPLOAD_LIMIT = 2;
+const NON_VOTER_WEEKLY_SUCCESSFUL_RECEIPT_LIMIT = 2;
+const NON_VOTER_WEEKLY_TOTAL_UPLOAD_LIMIT = 2;
 
 function getUtcDayWindow(date = new Date()): { startIso: string; endIso: string } {
   const start = new Date(date);
@@ -1223,7 +1245,18 @@ function getUtcDayWindow(date = new Date()): { startIso: string; endIso: string 
   return { startIso: start.toISOString(), endIso: end.toISOString() };
 }
 
-function isDailyLimitError(err: unknown, code?: string): boolean {
+function getUtcWeekWindow(date = new Date()): { startIso: string; endIso: string } {
+  const start = new Date(date);
+  start.setUTCHours(0, 0, 0, 0);
+  const day = start.getUTCDay();
+  const daysSinceMonday = (day + 6) % 7;
+  start.setUTCDate(start.getUTCDate() - daysSinceMonday);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 7);
+  return { startIso: start.toISOString(), endIso: end.toISOString() };
+}
+
+function isSubmissionLimitError(err: unknown, code?: string): boolean {
   if (!(err instanceof Error)) return false;
   const haystack = [
     err.message,
@@ -1234,7 +1267,9 @@ function isDailyLimitError(err: unknown, code?: string): boolean {
   if (code) return haystack.includes(code);
   return (
     haystack.includes("daily_upload_limit_exceeded") ||
-    haystack.includes("daily_verified_limit_exceeded")
+    haystack.includes("daily_verified_limit_exceeded") ||
+    haystack.includes("weekly_upload_limit_exceeded") ||
+    haystack.includes("weekly_verified_limit_exceeded")
   );
 }
 
@@ -2804,24 +2839,38 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       return jsonResponse(config, req, 200, { submission: existing, upload: null });
     }
 
-    const today = getUtcDayWindow();
-    const [dailyUploadCount, dailyVerifiedCount] = await Promise.all([
+    const isVoter = await isVeBetterVoteUser({
+      repo,
+      userId: authed.sub,
+      wallet: authed.wallet,
+    });
+    const quotaWindow = isVoter ? getUtcDayWindow() : getUtcWeekWindow();
+    const [uploadCount, verifiedCount] = await Promise.all([
       repo.countSubmissionsCreatedInWindow({
         user_id: authed.sub,
-        start_iso: today.startIso,
-        end_iso: today.endIso,
+        start_iso: quotaWindow.startIso,
+        end_iso: quotaWindow.endIso,
       }),
       repo.countVerifiedSubmissionsCreatedInWindow({
         user_id: authed.sub,
-        start_iso: today.startIso,
-        end_iso: today.endIso,
+        start_iso: quotaWindow.startIso,
+        end_iso: quotaWindow.endIso,
       }),
     ]);
-    if (dailyVerifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
-      return errorResponse(config, req, 429, "daily_verified_limit_exceeded");
-    }
-    if (dailyUploadCount >= DAILY_TOTAL_UPLOAD_LIMIT) {
-      return errorResponse(config, req, 429, "daily_upload_limit_exceeded");
+    if (isVoter) {
+      if (verifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
+        return errorResponse(config, req, 429, "daily_verified_limit_exceeded");
+      }
+      if (uploadCount >= VOTER_DAILY_TOTAL_UPLOAD_LIMIT) {
+        return errorResponse(config, req, 429, "daily_upload_limit_exceeded");
+      }
+    } else {
+      if (verifiedCount >= NON_VOTER_WEEKLY_SUCCESSFUL_RECEIPT_LIMIT) {
+        return errorResponse(config, req, 429, "weekly_verified_limit_exceeded");
+      }
+      if (uploadCount >= NON_VOTER_WEEKLY_TOTAL_UPLOAD_LIMIT) {
+        return errorResponse(config, req, 429, "weekly_upload_limit_exceeded");
+      }
     }
 
     const contentType = contentTypeRaw.split(";")[0]?.trim().toLowerCase() ?? "";
@@ -2880,8 +2929,13 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         }
         return jsonResponse(config, req, 200, { submission: again, upload: null });
       }
-      if (isDailyLimitError(err, "daily_upload_limit_exceeded")) {
-        return errorResponse(config, req, 429, "daily_upload_limit_exceeded");
+      if (isSubmissionLimitError(err)) {
+        const cause = err instanceof Error && typeof (err as any).cause === "object" ? JSON.stringify((err as any).cause) : "";
+        const message = `${err instanceof Error ? err.message : ""}\n${cause}`;
+        const error = message.includes("weekly_upload_limit_exceeded")
+          ? "weekly_upload_limit_exceeded"
+          : "daily_upload_limit_exceeded";
+        return errorResponse(config, req, 429, error);
       }
       throw err;
     }
@@ -2972,14 +3026,25 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     if (submission.status === "pending_upload") {
       return errorResponse(config, req, 409, "upload_incomplete");
     }
-    const uploadDay = getUtcDayWindow(new Date(submission.created_at));
-    const dailyVerifiedCount = await repo.countVerifiedSubmissionsCreatedInWindow({
-      user_id: authed.sub,
-      start_iso: uploadDay.startIso,
-      end_iso: uploadDay.endIso,
+    const isVoter = await isVeBetterVoteUser({
+      repo,
+      userId: authed.sub,
+      wallet: authed.wallet,
     });
-    if (dailyVerifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
-      return errorResponse(config, req, 429, "daily_verified_limit_exceeded");
+    const quotaWindow = isVoter
+      ? getUtcDayWindow(new Date(submission.created_at))
+      : getUtcWeekWindow(new Date(submission.created_at));
+    const verifiedCount = await repo.countVerifiedSubmissionsCreatedInWindow({
+      user_id: authed.sub,
+      start_iso: quotaWindow.startIso,
+      end_iso: quotaWindow.endIso,
+    });
+    if (isVoter) {
+      if (verifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
+        return errorResponse(config, req, 429, "daily_verified_limit_exceeded");
+      }
+    } else if (verifiedCount >= NON_VOTER_WEEKLY_SUCCESSFUL_RECEIPT_LIMIT) {
+      return errorResponse(config, req, 429, "weekly_verified_limit_exceeded");
     }
     if (submission.status === "verifying") {
       return jsonResponse(config, req, 200, { submission });
@@ -3174,7 +3239,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
             duplicate_of: winner?.id ?? null,
             verified_at: nowIso,
           });
-        } else if (finalStatus === "verified" && isDailyLimitError(err, "daily_verified_limit_exceeded")) {
+        } else if (finalStatus === "verified" && isSubmissionLimitError(err)) {
           await repo.updateSubmission(claimed.id, {
             status: "uploaded",
             points_base: 0,

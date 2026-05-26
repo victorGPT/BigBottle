@@ -30,9 +30,12 @@ import { createRewardsChain } from './vebetterRewards.js';
 import { formatB3trDisplay } from './rewards.js';
 import {
   DAILY_SUCCESSFUL_RECEIPT_LIMIT,
-  DAILY_TOTAL_UPLOAD_LIMIT,
+  NON_VOTER_WEEKLY_SUCCESSFUL_RECEIPT_LIMIT,
+  NON_VOTER_WEEKLY_TOTAL_UPLOAD_LIMIT,
+  VOTER_DAILY_TOTAL_UPLOAD_LIMIT,
   getUtcDayWindow,
-  isDailyLimitError
+  getUtcWeekWindow,
+  isSubmissionLimitError
 } from './submission-limits.js';
 
 type AuthedRequest = {
@@ -282,6 +285,27 @@ async function getReceiptBonusSnapshot(input: {
     multiplier: computeAdditiveBonusMultiplier(sources.map((source) => source.multiplier)),
     sources
   };
+}
+
+async function isVeBetterVoteUser(input: {
+  repo: ReturnType<typeof createRepo>;
+  userId: string;
+  wallet: string;
+  effectiveRoundId?: number;
+  log?: { warn: (obj: unknown, msg?: string) => void };
+}): Promise<boolean> {
+  try {
+    const vebetterVote = await input.repo.getLatestUserBonusEligibility({
+      user_id: input.userId,
+      wallet_address: input.wallet,
+      bonus_type: 'vebetter_vote_bonus',
+      ...(input.effectiveRoundId === undefined ? {} : { effective_round_id: input.effectiveRoundId })
+    });
+    return Boolean(vebetterVote);
+  } catch (err) {
+    input.log?.warn({ err, wallet: input.wallet, userId: input.userId }, 'vote_limit_lookup_failed');
+    return false;
+  }
 }
 
 async function main() {
@@ -589,7 +613,7 @@ async function main() {
     const parsed = InitSubmissionBody.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
 
-    const { sub: userId } = (request as AuthedRequest).user;
+    const { sub: userId, wallet } = (request as AuthedRequest).user;
     const existing = await repo.getSubmissionByClientId({
       user_id: userId,
       client_submission_id: parsed.data.client_submission_id
@@ -610,24 +634,39 @@ async function main() {
       return reply.send({ submission: existing, upload: null });
     }
 
-    const today = getUtcDayWindow();
-    const [dailyUploadCount, dailyVerifiedCount] = await Promise.all([
+    const isVoter = await isVeBetterVoteUser({
+      repo,
+      userId,
+      wallet,
+      log: request.log
+    });
+    const quotaWindow = isVoter ? getUtcDayWindow() : getUtcWeekWindow();
+    const [uploadCount, verifiedCount] = await Promise.all([
       repo.countSubmissionsCreatedInWindow({
         user_id: userId,
-        start_iso: today.startIso,
-        end_iso: today.endIso
+        start_iso: quotaWindow.startIso,
+        end_iso: quotaWindow.endIso
       }),
       repo.countVerifiedSubmissionsCreatedInWindow({
         user_id: userId,
-        start_iso: today.startIso,
-        end_iso: today.endIso
+        start_iso: quotaWindow.startIso,
+        end_iso: quotaWindow.endIso
       })
     ]);
-    if (dailyVerifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
-      return reply.code(429).send({ error: 'daily_verified_limit_exceeded' });
-    }
-    if (dailyUploadCount >= DAILY_TOTAL_UPLOAD_LIMIT) {
-      return reply.code(429).send({ error: 'daily_upload_limit_exceeded' });
+    if (isVoter) {
+      if (verifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
+        return reply.code(429).send({ error: 'daily_verified_limit_exceeded' });
+      }
+      if (uploadCount >= VOTER_DAILY_TOTAL_UPLOAD_LIMIT) {
+        return reply.code(429).send({ error: 'daily_upload_limit_exceeded' });
+      }
+    } else {
+      if (verifiedCount >= NON_VOTER_WEEKLY_SUCCESSFUL_RECEIPT_LIMIT) {
+        return reply.code(429).send({ error: 'weekly_verified_limit_exceeded' });
+      }
+      if (uploadCount >= NON_VOTER_WEEKLY_TOTAL_UPLOAD_LIMIT) {
+        return reply.code(429).send({ error: 'weekly_upload_limit_exceeded' });
+      }
     }
 
     const contentType = parsed.data.content_type.split(';')[0]?.trim().toLowerCase() ?? '';
@@ -684,8 +723,12 @@ async function main() {
         }
         return reply.send({ submission: again, upload: null });
       }
-      if (isDailyLimitError(err, 'daily_upload_limit_exceeded')) {
-        return reply.code(429).send({ error: 'daily_upload_limit_exceeded' });
+      if (isSubmissionLimitError(err)) {
+        const cause = err instanceof Error && typeof (err as any).cause === 'object' ? JSON.stringify((err as any).cause) : '';
+        const message = `${err instanceof Error ? err.message : ''}\n${cause}`;
+        const error =
+          message.includes('weekly_upload_limit_exceeded') ? 'weekly_upload_limit_exceeded' : 'daily_upload_limit_exceeded';
+        return reply.code(429).send({ error });
       }
       throw err;
     }
@@ -740,14 +783,26 @@ async function main() {
       return reply.code(409).send({ error: 'upload_incomplete' });
     }
 
-    const uploadDay = getUtcDayWindow(new Date(submission.created_at));
-    const dailyVerifiedCount = await repo.countVerifiedSubmissionsCreatedInWindow({
-      user_id: userId,
-      start_iso: uploadDay.startIso,
-      end_iso: uploadDay.endIso
+    const isVoter = await isVeBetterVoteUser({
+      repo,
+      userId,
+      wallet,
+      log: request.log
     });
-    if (dailyVerifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
-      return reply.code(429).send({ error: 'daily_verified_limit_exceeded' });
+    const quotaWindow = isVoter
+      ? getUtcDayWindow(new Date(submission.created_at))
+      : getUtcWeekWindow(new Date(submission.created_at));
+    const verifiedCount = await repo.countVerifiedSubmissionsCreatedInWindow({
+      user_id: userId,
+      start_iso: quotaWindow.startIso,
+      end_iso: quotaWindow.endIso
+    });
+    if (isVoter) {
+      if (verifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
+        return reply.code(429).send({ error: 'daily_verified_limit_exceeded' });
+      }
+    } else if (verifiedCount >= NON_VOTER_WEEKLY_SUCCESSFUL_RECEIPT_LIMIT) {
+      return reply.code(429).send({ error: 'weekly_verified_limit_exceeded' });
     }
 
     if (submission.status === 'verifying') {
@@ -923,7 +978,7 @@ async function main() {
             duplicate_of: winner?.id ?? null,
             verified_at: nowIso
           });
-        } else if (finalStatus === 'verified' && isDailyLimitError(err, 'daily_verified_limit_exceeded')) {
+        } else if (finalStatus === 'verified' && isSubmissionLimitError(err)) {
           await repo.updateSubmission(claimed.id, {
             status: 'uploaded',
             points_base: 0,
