@@ -192,6 +192,16 @@ Observable scan behavior:
   - Receipt uploads: at most two receipt uploads per user, including failed attempts; after two unsuccessful attempts no more are processed.
   - Non-voters: at most two chances per week.
 
+Receipt quota enforcement:
+- `POST /submissions/init` rejects new uploads with `429` before issuing a presigned URL when quota is exhausted.
+- `POST /submissions/:id/verify` rejects verification with `429` when the verified-receipt quota is exhausted.
+- API error codes:
+  - `daily_upload_limit_exceeded`: VeBetterDAO voter already used two upload attempts for the UTC day.
+  - `daily_verified_limit_exceeded`: VeBetterDAO voter already has one verified receipt for the UTC day.
+  - `weekly_upload_limit_exceeded`: non-voter already used two upload attempts for the UTC week.
+  - `weekly_verified_limit_exceeded`: non-voter already has two verified receipts for the UTC week.
+- The DB trigger `public.bb_enforce_daily_receipt_submission_limits()` is the final concurrency guard for these limits. Despite the historical function name, it now enforces voter daily limits and non-voter weekly limits.
+
 ### Receipt Result UI
 File: `apps/web/src/app/pages/ResultPage.tsx`
 - Shows a dedicated branch for duplicates:
