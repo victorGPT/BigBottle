@@ -57,6 +57,15 @@ describe('ScanPage', () => {
     );
   });
 
+  it('shows reward rules before receipt capture', () => {
+    render(<ScanPage />);
+
+    expect(screen.getByText('Reward rules')).toBeInTheDocument();
+    expect(screen.getByText('Voters: 1 successful chance per day within each week.')).toBeInTheDocument();
+    expect(screen.getByText(/each user can upload up to 2 receipts/)).toBeInTheDocument();
+    expect(screen.getByText('Non-voters: up to 2 chances per week.')).toBeInTheDocument();
+  });
+
   it('retries upload with acl header when first put returns 403', async () => {
     const original = new File([new Uint8Array(10)], 'a.png', { type: 'image/png' });
     const compressed = new File([new Uint8Array(5)], 'receipt.jpg', { type: 'image/jpeg' });
