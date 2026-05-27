@@ -382,6 +382,7 @@ File: `supabase/functions/api/index.ts`
 - Implements the production `/rewards/pool` chain read route for reward distribution pool balance display
 - Mirrors reward claim broadcast failure handling from `apps/api`: persisted claims are marked `failed` when raw transaction broadcast is rejected.
 - Imports VeChain SDK npm dependencies statically so the self-hosted Supabase Edge Runtime includes package constraints during function compilation.
+- `supabase/functions/api/package.json` pins Edge Function npm dependencies, including `viem@2.21.54`, because newer transitive `viem` releases can reference non-npm dependencies rejected by Deno.
 - Uses its own JWT (`JWT_SECRET`) and does not rely on Supabase Auth
 
 Config:

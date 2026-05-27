@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "@vechain/sdk-core": "2.0.7",
+    "@vechain/sdk-network": "2.0.7",
+    "aws4fetch": "1.0.20",
+    "ethers": "6.15.0",
+    "jose": "5.2.4",
+    "viem": "2.21.54"
+  },
+  "overrides": {
+    "viem": "2.21.54"
+  }
+}
