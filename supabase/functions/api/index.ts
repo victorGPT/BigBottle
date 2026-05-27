@@ -14,6 +14,12 @@ import {
 import { AwsClient } from "npm:aws4fetch@1.0.20";
 import { getAddress, getBytes, Interface, formatUnits, verifyTypedData } from "npm:ethers@6.15.0";
 import { SignJWT, jwtVerify } from "npm:jose@5.2.4";
+import { Address, Transaction } from "npm:@vechain/sdk-core@2.0.7";
+import {
+  ProviderInternalBaseWallet,
+  ThorClient,
+  VeChainProvider,
+} from "npm:@vechain/sdk-network@2.0.7";
 
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
@@ -1527,29 +1533,6 @@ function defaultVechainNodeUrl(network: "testnet" | "mainnet"): string {
   return network === "mainnet" ? "https://mainnet.vechain.org" : "https://testnet.vechain.org";
 }
 
-let vechainSdkPromise: Promise<{
-  Address: any;
-  Transaction: any;
-  ProviderInternalBaseWallet: any;
-  ThorClient: any;
-  VeChainProvider: any;
-}> | null = null;
-
-async function loadVechainSdk() {
-  if (!vechainSdkPromise) {
-    const coreSpec = "npm:" + "@vechain/sdk-core@2.0.7";
-    const networkSpec = "npm:" + "@vechain/sdk-network@2.0.7";
-    vechainSdkPromise = Promise.all([import(coreSpec), import(networkSpec)]).then(([core, network]) => ({
-      Address: core.Address,
-      Transaction: core.Transaction,
-      ProviderInternalBaseWallet: network.ProviderInternalBaseWallet,
-      ThorClient: network.ThorClient,
-      VeChainProvider: network.VeChainProvider,
-    }));
-  }
-  return vechainSdkPromise;
-}
-
 function requireRewardsPoolConfig(config: AppConfig) {
   const nodeUrl = config.VECHAIN_NODE_URL ?? defaultVechainNodeUrl(config.VECHAIN_NETWORK);
   if (!config.VEBETTER_APP_ID || !isBytes32Hex(config.VEBETTER_APP_ID)) throw new Error("rewards_unconfigured");
@@ -1634,7 +1617,6 @@ function createRewardsChain(config: AppConfig): RewardsChain {
 
   async function getThorClient() {
     if (thorClient) return thorClient;
-    const { ThorClient } = await loadVechainSdk();
     thorClient = ThorClient.at(config.VECHAIN_NODE_URL ?? defaultVechainNodeUrl(config.VECHAIN_NETWORK), {
       isPollingEnabled: false,
     });
@@ -1642,7 +1624,6 @@ function createRewardsChain(config: AppConfig): RewardsChain {
   }
 
   async function createSignerContext() {
-    const { Address, ProviderInternalBaseWallet, VeChainProvider } = await loadVechainSdk();
     const cfg = requireRewardsChainConfig(config);
     const pkBytes = getBytes(cfg.distributorPrivateKey);
     if (pkBytes.length !== 32) throw new Error("rewards_unconfigured");
@@ -1689,7 +1670,6 @@ function createRewardsChain(config: AppConfig): RewardsChain {
         value: 0,
         comment: `BigBottle claim ${input.claimId}`,
       });
-      const { Transaction } = await loadVechainSdk();
       const txHash = Transaction.decode(getBytes(rawTx), true).getTransactionHash().toString();
       return { txHash, rawTx };
     },
