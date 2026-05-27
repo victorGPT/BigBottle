@@ -381,6 +381,7 @@ File: `supabase/functions/api/index.ts`
 - Mirrors the local Fastify routes under `apps/api` for Phase 1 and Phase 2
 - Implements the production `/rewards/pool` chain read route for reward distribution pool balance display
 - Mirrors reward claim broadcast failure handling from `apps/api`: persisted claims are marked `failed` when raw transaction broadcast is rejected.
+- Imports VeChain SDK npm dependencies statically so the self-hosted Supabase Edge Runtime includes package constraints during function compilation.
 - Uses its own JWT (`JWT_SECRET`) and does not rely on Supabase Auth
 
 Config:
