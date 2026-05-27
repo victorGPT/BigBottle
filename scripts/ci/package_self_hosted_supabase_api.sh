@@ -10,6 +10,9 @@ mkdir -p "${OUT_DIR}/volumes/functions/api" "$(dirname "${TARBALL}")"
 
 cp "${ROOT_DIR}/supabase/functions/api/index.ts" "${OUT_DIR}/volumes/functions/api/index.ts"
 cp "${ROOT_DIR}/supabase/functions/api/config.toml" "${OUT_DIR}/volumes/functions/api/config.toml"
+if [[ -f "${ROOT_DIR}/supabase/functions/api/package.json" ]]; then
+  cp "${ROOT_DIR}/supabase/functions/api/package.json" "${OUT_DIR}/volumes/functions/api/package.json"
+fi
 
 COPYFILE_DISABLE=1 tar --no-xattrs -C "${OUT_DIR}" -czf "${TARBALL}" volumes/functions/api
 
