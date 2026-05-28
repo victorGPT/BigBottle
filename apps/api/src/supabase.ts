@@ -132,6 +132,17 @@ export function createSupabaseAdmin(config: AppConfig): SupabaseClient {
 
 export function createRepo(supabase: SupabaseClient) {
   return {
+    async isWalletBlacklisted(walletAddress: string): Promise<boolean> {
+      const walletLower = walletAddress.trim().toLowerCase();
+      const res = await supabase
+        .from('wallet_blacklist')
+        .select('wallet_address')
+        .eq('wallet_address', walletLower)
+        .maybeSingle();
+      const data = ensureOk(res, 'Failed to check wallet blacklist');
+      return data !== null;
+    },
+
     async getOrCreateUser(walletAddressLower: string): Promise<DbUser> {
       const upsertRes = await supabase
         .from('users')
