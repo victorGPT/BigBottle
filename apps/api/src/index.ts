@@ -123,7 +123,7 @@ const EMPTY_RECEIPT_BONUS_SNAPSHOT: ReceiptBonusSnapshot = {
   sources: []
 };
 
-function requireAuth() {
+function requireAuth(repo: ReturnType<typeof createRepo>) {
   return async function authenticate(request: any, reply: any) {
     try {
       await request.jwtVerify();
@@ -131,7 +131,21 @@ function requireAuth() {
       // If auth fails, we short-circuit the request.
       return reply.code(401).send({ error: 'unauthorized' });
     }
+    const wallet = typeof request.user?.wallet === 'string' ? request.user.wallet : '';
+    if (wallet && (await repo.isWalletBlacklisted(wallet))) {
+      return reply.code(403).send({ error: 'wallet_blacklisted' });
+    }
   };
+}
+
+async function rejectBlacklistedWallet(input: {
+  repo: ReturnType<typeof createRepo>;
+  wallet: string;
+  reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } };
+}): Promise<boolean> {
+  if (!(await input.repo.isWalletBlacklisted(input.wallet))) return false;
+  input.reply.code(403).send({ error: 'wallet_blacklisted' });
+  return true;
 }
 
 function computeAchievementTotalMultiplier(items: Array<{ unlocked: boolean; multiplier: number }>): number {
@@ -342,7 +356,7 @@ async function main() {
     return reply.code(statusCode >= 400 && statusCode < 600 ? statusCode : 400).send({ error: 'bad_request' });
   });
 
-  const authenticate = requireAuth();
+  const authenticate = requireAuth(repo);
 
   app.get('/health', async () => ({ ok: true }));
 
@@ -359,6 +373,7 @@ async function main() {
     if (!wallet) return reply.code(400).send({ error: 'invalid_address' });
 
     const walletAddressLower = wallet.lower;
+    if (await rejectBlacklistedWallet({ repo, wallet: walletAddressLower, reply })) return;
     const challengeId = randomUUID();
     const nonce = randomBytes(16).toString('hex');
     const expiresAtIso = new Date(Date.now() + 5 * 60 * 1000).toISOString();
@@ -411,6 +426,7 @@ async function main() {
     if (!claimed) return reply.code(401).send({ error: 'challenge_used' });
 
     const user = await repo.getOrCreateUser(challenge.wallet_address);
+    if (await rejectBlacklistedWallet({ repo, wallet: user.wallet_address, reply })) return;
     const token = await reply.jwtSign(
       { sub: user.id, wallet: user.wallet_address },
       { expiresIn: '7d' }

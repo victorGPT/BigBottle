@@ -296,6 +296,7 @@ Auth:
 - `POST /auth/challenge` -> `{ challenge_id: string, typed_data: { domain, types, value } }`
 - `POST /auth/verify` -> `{ access_token: string, user: { id, wallet_address } }`
 - `GET /me` (auth) -> `{ user }`
+- Blacklisted wallets return `403 { error: "wallet_blacklisted" }` on auth challenge, auth verify, and authenticated API routes.
 
 Account:
 - `GET /account/summary` (auth) -> `{ summary: { points_total: number, level: null } }`
@@ -513,6 +514,12 @@ Constraints / indexes:
 - `analyzer_provider` must be `dify`, `gemini`, `siliconflow`, `temporal`, or `null`
 - `analyzer_usage` and `analyzer_image` must be JSON objects when present
 - Index on `(analyzer_provider, created_at desc)` for usage/cost reporting
+
+### `supabase/migrations/20260528124159_wallet_blacklist.sql`
+- Adds `public.wallet_blacklist` keyed by lowercase `wallet_address`.
+- Enables row-level security and revokes anon/authenticated table privileges.
+- Seeds `0x7e5abb955ccacd9d2c686f6153bf3756bb327177` with reason `farmer_suspected_no_vebetter_vote_bonus_eligibility`.
+- API and Edge Function reject blacklisted wallets during auth challenge, auth verify, and authenticated route access.
 
 ### `supabase/migrations/20260208_z_account_summary.sql`
 Functions:

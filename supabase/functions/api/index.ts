@@ -426,6 +426,17 @@ function createSupabaseAdmin(config: AppConfig): SupabaseClient {
 
 function createRepo(supabase: SupabaseClient) {
   return {
+    async isWalletBlacklisted(walletAddress: string): Promise<boolean> {
+      const walletLower = walletAddress.trim().toLowerCase();
+      const res = await supabase
+        .from("wallet_blacklist")
+        .select("wallet_address")
+        .eq("wallet_address", walletLower)
+        .maybeSingle();
+      const data = ensureOk(res, "Failed to check wallet blacklist");
+      return data !== null;
+    },
+
     async getOrCreateUser(walletAddressLower: string): Promise<DbUser> {
       const upsertRes = await supabase
         .from("users")
@@ -2420,6 +2431,13 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     return rewardsChain;
   };
 
+  const requireActiveAuth = async (req: Request): Promise<AuthedUser | "blacklisted" | null> => {
+    const authed = await requireAuth(config, req);
+    if (!authed) return null;
+    if (await getRepo().isWalletBlacklisted(authed.wallet)) return "blacklisted";
+    return authed;
+  };
+
   if (req.method === "GET" && ctx.routePath === "/health/s3") {
     const s3 = getS3();
     const key = `uploads/healthchecks/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.txt`;
@@ -2462,6 +2480,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
     const wallet = normalizeWalletAddress(address);
     if (!wallet) return errorResponse(config, req, 400, "invalid_address");
+    if (await getRepo().isWalletBlacklisted(wallet.lower)) {
+      return errorResponse(config, req, 403, "wallet_blacklisted");
+    }
 
     const challengeId = crypto.randomUUID();
     const nonce = randomHex(16);
@@ -2511,6 +2532,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     if (!claimed) return errorResponse(config, req, 401, "challenge_used");
 
     const user = await getRepo().getOrCreateUser(challenge.wallet_address);
+    if (await getRepo().isWalletBlacklisted(user.wallet_address)) {
+      return errorResponse(config, req, 403, "wallet_blacklisted");
+    }
     const token = await signAccessToken(config, { sub: user.id, wallet: user.wallet_address });
 
     return jsonResponse(config, req, 200, {
@@ -2520,8 +2544,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
   }
 
   if (req.method === "GET" && ctx.routePath === "/me") {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
 
     const user = await getRepo().getOrCreateUser(authed.wallet);
     if (user.id !== authed.sub) {
@@ -2534,16 +2559,18 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
   // --- Account ---
   if (req.method === "GET" && ctx.routePath === "/account/summary") {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
 
     const pointsTotal = await getRepo().getUserPointsTotal(authed.sub);
     return jsonResponse(config, req, 200, { summary: { points_total: pointsTotal, level: null } });
   }
 
   if (req.method === "GET" && ctx.routePath === "/account/achievements") {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
 
     const wallet = authed.wallet;
     const repo = getRepo();
@@ -2691,8 +2718,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
   // --- Rewards ---
   if (req.method === "GET" && ctx.routePath === "/rewards/pool") {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
     try {
       const pool = await getRewardsPoolStatus(getRewardsChain());
       return jsonResponse(config, req, 200, { pool });
@@ -2705,8 +2733,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
   }
 
   if (req.method === "GET" && ctx.routePath === "/rewards/quote") {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
     try {
       const quote = await getRewardsQuote(getRepo(), authed.sub);
       return jsonResponse(config, req, 200, { quote });
@@ -2719,8 +2748,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
   }
 
   if (req.method === "POST" && ctx.routePath === "/rewards/claim") {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
     const body = await readJson(req);
     if (!isRecord(body)) return errorResponse(config, req, 400, "invalid_body");
     const clientClaimId = parseUuid(body.client_claim_id);
@@ -2753,8 +2783,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
   }
 
   if (req.method === "GET" && ctx.routePath === "/rewards/claims") {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
     const url = new URL(req.url);
     const limitRaw = Number.parseInt(url.searchParams.get("limit") ?? "20", 10);
     const limit = Number.isFinite(limitRaw) ? Math.min(100, Math.max(1, limitRaw)) : 20;
@@ -2764,8 +2795,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
   const rewardClaimMatch = ctx.routePath.match(/^\/rewards\/claims\/([^/]+)$/);
   if (req.method === "GET" && rewardClaimMatch) {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
     const claimId = parseUuid(rewardClaimMatch[1]);
     if (!claimId) return errorResponse(config, req, 400, "invalid_params");
     const claim = await getRepo().getRewardClaimById(claimId);
@@ -2781,8 +2813,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
   // --- Submissions ---
   if (req.method === "POST" && ctx.routePath === "/submissions/init") {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
 
     const repo = getRepo();
     const s3 = getS3();
@@ -2937,8 +2970,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
   const completeMatch = ctx.routePath.match(/^\/submissions\/([^/]+)\/complete$/);
   if (req.method === "POST" && completeMatch) {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
     const submissionId = parseUuid(completeMatch[1]);
     if (!submissionId) return errorResponse(config, req, 400, "invalid_params");
 
@@ -2972,8 +3006,9 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
 
   const verifyMatch = ctx.routePath.match(/^\/submissions\/([^/]+)\/verify$/);
   if (req.method === "POST" && verifyMatch) {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
     const submissionId = parseUuid(verifyMatch[1]);
     if (!submissionId) return errorResponse(config, req, 400, "invalid_params");
 
@@ -3324,16 +3359,18 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
   }
 
   if (req.method === "GET" && ctx.routePath === "/submissions") {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
     const rows = await getRepo().listSubmissions(authed.sub, 50);
     return jsonResponse(config, req, 200, { submissions: rows });
   }
 
   const getMatch = ctx.routePath.match(/^\/submissions\/([^/]+)$/);
   if (req.method === "GET" && getMatch) {
-    const authed = await requireAuth(config, req);
+    const authed = await requireActiveAuth(req);
     if (!authed) return errorResponse(config, req, 401, "unauthorized");
+    if (authed === "blacklisted") return errorResponse(config, req, 403, "wallet_blacklisted");
     const submissionId = parseUuid(getMatch[1]);
     if (!submissionId) return errorResponse(config, req, 400, "invalid_params");
 
