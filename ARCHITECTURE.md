@@ -31,7 +31,7 @@ High-level flow:
 3. Backend issues a presigned S3 PUT URL (idempotent by `client_submission_id`).
 4. Client uploads to S3, then marks the submission as uploaded.
 5. Backend presigns a GET URL for the image, calls Dify, computes points, and persists results.
-6. Verified receipts are deduplicated by DB fingerprint and by per-user receipt timestamp at second precision.
+6. Verified receipts are deduplicated by DB fingerprint and by global receipt timestamp at second precision.
 
 Specs / single sources of truth for business rules:
 - MVP receipt verification + scoring: `docs/plans/2026-02-06-mvp-receipt-verification-brief.md`
@@ -201,7 +201,7 @@ Receipt quota enforcement:
 - `weekly_upload_limit_exceeded`: user without vote/GM-NFT bonus already used one upload attempt for the UTC week.
 - `weekly_verified_limit_exceeded`: user without vote/GM-NFT bonus already has two verified receipts for the UTC week.
 - The DB trigger `public.bb_enforce_daily_receipt_submission_limits()` is the final concurrency guard for these limits. Despite the historical function name, it now enforces voter daily limits and non-voter weekly limits.
-- The DB trigger `public.bb_reject_duplicate_receipt_time_second()` rejects later `verified` submissions when the same user already has a verified receipt with the same normalized `YYYY-MM-DD HH:MI:SS` receipt timestamp. The first verified row is kept; later rows become `status = rejected`, `rejection_code = duplicate_receipt_time`, and `duplicate_of = <first row id>`.
+- The DB trigger `public.bb_reject_duplicate_receipt_time_second()` rejects later `verified` submissions when any user already has a verified receipt with the same normalized `YYYY-MM-DD HH:MI:SS` receipt timestamp. The first verified row is kept globally; later rows become `status = rejected`, `rejection_code = duplicate_receipt_time`, and `duplicate_of = <first row id>`.
 
 ### Receipt Result UI
 File: `apps/web/src/app/pages/ResultPage.tsx`
@@ -490,6 +490,13 @@ Backfill:
 
 Indexes:
 - `receipt_submissions_user_receipt_time_second_verified_idx` supports duplicate lookup for verified receipt timestamps.
+
+### `supabase/migrations/20260529051828_global_receipt_time_second_dedup.sql`
+- Replaces the per-user receipt timestamp duplicate rule with a global rule.
+- Drops `receipt_submissions_user_receipt_time_second_verified_idx`.
+- Adds `receipt_submissions_receipt_time_second_verified_idx` for global verified timestamp lookup.
+- Replaces `public.bb_reject_duplicate_receipt_time_second()` so its advisory lock and duplicate lookup use only the normalized receipt timestamp, not `user_id`.
+- Re-runs the historical backfill globally, rejecting later duplicates only when they are not already locked by a `pending`, `submitted`, or `confirmed` reward claim source.
 
 ### `supabase/migrations/202605090001_receipt_points_audit.sql`
 Columns added to `public.receipt_submissions`:
