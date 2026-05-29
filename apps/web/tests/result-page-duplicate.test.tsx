@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ResultPage from '../src/app/pages/ResultPage';
 
@@ -43,6 +43,10 @@ describe('ResultPage', () => {
     mocks.apiPost.mockReset();
   });
 
+  afterEach(() => {
+    cleanup();
+  });
+
   it('shows the receipt points audit breakdown', async () => {
     mocks.apiGet.mockResolvedValue({
       submission: {
@@ -84,6 +88,25 @@ describe('ResultPage', () => {
         points_total: 0,
         dify_drink_list: null,
         rejection_code: 'duplicate_receipt',
+        duplicate_of: 'sub-0',
+        created_at: new Date().toISOString()
+      }
+    });
+
+    render(<ResultPage />);
+
+    expect(await screen.findByText('Receipt already used')).toBeInTheDocument();
+    expect(screen.getByText('This receipt has already been used and cannot earn rewards again.')).toBeInTheDocument();
+  });
+
+  it('shows a dedicated message for duplicate receipt timestamps', async () => {
+    mocks.apiGet.mockResolvedValue({
+      submission: {
+        id: 'sub-1',
+        status: 'rejected',
+        points_total: 0,
+        dify_drink_list: null,
+        rejection_code: 'duplicate_receipt_time',
         duplicate_of: 'sub-0',
         created_at: new Date().toISOString()
       }

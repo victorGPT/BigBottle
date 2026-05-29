@@ -31,7 +31,7 @@ High-level flow:
 3. Backend issues a presigned S3 PUT URL (idempotent by `client_submission_id`).
 4. Client uploads to S3, then marks the submission as uploaded.
 5. Backend presigns a GET URL for the image, calls Dify, computes points, and persists results.
-6. Verified receipts are deduplicated by a DB fingerprint (partial unique index).
+6. Verified receipts are deduplicated by DB fingerprint and by per-user receipt timestamp at second precision.
 
 Specs / single sources of truth for business rules:
 - MVP receipt verification + scoring: `docs/plans/2026-02-06-mvp-receipt-verification-brief.md`
@@ -201,11 +201,13 @@ Receipt quota enforcement:
 - `weekly_upload_limit_exceeded`: user without vote/GM-NFT bonus already used one upload attempt for the UTC week.
 - `weekly_verified_limit_exceeded`: user without vote/GM-NFT bonus already has two verified receipts for the UTC week.
 - The DB trigger `public.bb_enforce_daily_receipt_submission_limits()` is the final concurrency guard for these limits. Despite the historical function name, it now enforces voter daily limits and non-voter weekly limits.
+- The DB trigger `public.bb_reject_duplicate_receipt_time_second()` rejects later `verified` submissions when the same user already has a verified receipt with the same normalized `YYYY-MM-DD HH:MI:SS` receipt timestamp. The first verified row is kept; later rows become `status = rejected`, `rejection_code = duplicate_receipt_time`, and `duplicate_of = <first row id>`.
 
 ### Receipt Result UI
 File: `apps/web/src/app/pages/ResultPage.tsx`
 - Shows a dedicated branch for duplicates:
   - `status = rejected` and `rejection_code = duplicate_receipt`
+  - `status = rejected` and `rejection_code = duplicate_receipt_time`
 - Shows a per-receipt points audit breakdown when available:
   - `points_total`: final awarded points
   - `points_base`: receipt base points before achievement bonuses
@@ -477,6 +479,17 @@ Functions:
 
 Constraints:
 - partial unique index on `receipt_fingerprint` where `status='verified' and receipt_fingerprint is not null`
+
+### `supabase/migrations/20260529050850_receipt_time_second_dedup.sql`
+Functions:
+- `public.bb_receipt_time_second(receipt_time_raw text) -> text`: extracts a normalized `YYYY-MM-DD HH:MI:SS` timestamp from raw analyzer output.
+- `public.bb_reject_duplicate_receipt_time_second()`: trigger function that keeps the first verified receipt per `(user_id, receipt_time_second)` and rejects later duplicates.
+
+Backfill:
+- Existing later duplicates are rejected only when they are not already locked by a `pending`, `submitted`, or `confirmed` reward claim source.
+
+Indexes:
+- `receipt_submissions_user_receipt_time_second_verified_idx` supports duplicate lookup for verified receipt timestamps.
 
 ### `supabase/migrations/202605090001_receipt_points_audit.sql`
 Columns added to `public.receipt_submissions`:

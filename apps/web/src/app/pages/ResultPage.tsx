@@ -173,7 +173,7 @@ export default function ResultPage() {
     );
   }
 
-  if (status === 'rejected' && rejectionCode === 'duplicate_receipt') {
+  if (status === 'rejected' && (rejectionCode === 'duplicate_receipt' || rejectionCode === 'duplicate_receipt_time')) {
     return (
       <Screen>
         <div className="mx-auto flex min-h-dvh max-w-[420px] flex-col px-5 pb-10 pt-10">
