@@ -11,8 +11,9 @@ import { loadConfig } from './config.js';
 import { buildLoginTypedData, verifyLoginSignature } from './auth.js';
 import { createRepo, createSupabaseAdmin, type DbRewardClaim } from './supabase.js';
 import {
-  applyPointsMultiplier,
+  BONUS_RECEIPT_MULTIPLIER,
   computeAdditiveBonusMultiplier,
+  computeReceiptAwardPoints,
   computeTotalPoints,
   resolveBonusMultiplier
 } from './scoring.js';
@@ -96,8 +97,8 @@ const AccountAchievementsQuery = z.object({
   effective_round_id: z.coerce.number().int().positive().optional()
 });
 
-const VEBETTER_VOTE_BONUS_MULTIPLIER = 10;
-const GM_NFT_BONUS_MULTIPLIER = 10;
+const VEBETTER_VOTE_BONUS_MULTIPLIER = BONUS_RECEIPT_MULTIPLIER;
+const GM_NFT_BONUS_MULTIPLIER = BONUS_RECEIPT_MULTIPLIER;
 
 type ReceiptBonusSource =
   | {
@@ -318,6 +319,33 @@ async function isVeBetterVoteUser(input: {
     return Boolean(vebetterVote);
   } catch (err) {
     input.log?.warn({ err, wallet: input.wallet, userId: input.userId }, 'vote_limit_lookup_failed');
+    return false;
+  }
+}
+
+async function hasReceiptBonusPrivileges(input: {
+  repo: ReturnType<typeof createRepo>;
+  userId: string;
+  wallet: string;
+  effectiveRoundId?: number;
+  log?: { warn: (obj: unknown, msg?: string) => void };
+}): Promise<boolean> {
+  if (
+    await isVeBetterVoteUser({
+      repo: input.repo,
+      userId: input.userId,
+      wallet: input.wallet,
+      ...(input.effectiveRoundId === undefined ? {} : { effectiveRoundId: input.effectiveRoundId }),
+      ...(input.log === undefined ? {} : { log: input.log })
+    })
+  ) {
+    return true;
+  }
+
+  try {
+    return Boolean(await getHighestGmNftByOwner(input.wallet));
+  } catch (err) {
+    input.log?.warn({ err, wallet: input.wallet }, 'gm_nft_privilege_lookup_failed');
     return false;
   }
 }
@@ -650,13 +678,16 @@ async function main() {
       return reply.send({ submission: existing, upload: null });
     }
 
-    const isVoter = await isVeBetterVoteUser({
+    const hasBonusPrivileges = await hasReceiptBonusPrivileges({
       repo,
       userId,
       wallet,
+      ...(config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID === undefined
+        ? {}
+        : { effectiveRoundId: config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID }),
       log: request.log
     });
-    const quotaWindow = isVoter ? getUtcDayWindow() : getUtcWeekWindow();
+    const quotaWindow = hasBonusPrivileges ? getUtcDayWindow() : getUtcWeekWindow();
     const [uploadCount, verifiedCount] = await Promise.all([
       repo.countSubmissionsCreatedInWindow({
         user_id: userId,
@@ -669,7 +700,7 @@ async function main() {
         end_iso: quotaWindow.endIso
       })
     ]);
-    if (isVoter) {
+    if (hasBonusPrivileges) {
       if (verifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
         return reply.code(429).send({ error: 'daily_verified_limit_exceeded' });
       }
@@ -799,13 +830,16 @@ async function main() {
       return reply.code(409).send({ error: 'upload_incomplete' });
     }
 
-    const isVoter = await isVeBetterVoteUser({
+    const hasBonusPrivileges = await hasReceiptBonusPrivileges({
       repo,
       userId,
       wallet,
+      ...(config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID === undefined
+        ? {}
+        : { effectiveRoundId: config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID }),
       log: request.log
     });
-    const quotaWindow = isVoter
+    const quotaWindow = hasBonusPrivileges
       ? getUtcDayWindow(new Date(submission.created_at))
       : getUtcWeekWindow(new Date(submission.created_at));
     const verifiedCount = await repo.countVerifiedSubmissionsCreatedInWindow({
@@ -813,7 +847,7 @@ async function main() {
       start_iso: quotaWindow.startIso,
       end_iso: quotaWindow.endIso
     });
-    if (isVoter) {
+    if (hasBonusPrivileges) {
       if (verifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
         return reply.code(429).send({ error: 'daily_verified_limit_exceeded' });
       }
@@ -943,7 +977,7 @@ async function main() {
             })
           : EMPTY_RECEIPT_BONUS_SNAPSHOT;
       const earnedBasePoints = ok ? basePoints : 0;
-      const totalPoints = ok ? applyPointsMultiplier(earnedBasePoints, bonusSnapshot.multiplier) : 0;
+      const totalPoints = ok ? computeReceiptAwardPoints(earnedBasePoints, bonusSnapshot.multiplier) : 0;
 
       const finalStatus = ok ? (totalPoints > 0 ? 'verified' : 'not_claimable') : 'rejected';
       const receiptFingerprint =

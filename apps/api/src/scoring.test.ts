@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyPointsMultiplier,
   computeAdditiveBonusMultiplier,
+  computeReceiptAwardPoints,
   computeTotalPoints,
   parseAmount,
   parseCapacityMl,
@@ -97,7 +98,13 @@ describe('scoring', () => {
     ]);
 
     expect(base.totalPoints).toBe(12);
-    expect(applyPointsMultiplier(base.totalPoints, 10)).toBe(120);
-    expect(applyPointsMultiplier(base.totalPoints, 20)).toBe(240);
+    expect(applyPointsMultiplier(base.totalPoints, 100)).toBe(1200);
+    expect(applyPointsMultiplier(base.totalPoints, 200)).toBe(2400);
+  });
+
+  it('caps receipts without bonus privileges to 2 points', () => {
+    expect(computeReceiptAwardPoints(20, 1)).toBe(2);
+    expect(computeReceiptAwardPoints(1, 1)).toBe(1);
+    expect(computeReceiptAwardPoints(20, 100)).toBe(2000);
   });
 });

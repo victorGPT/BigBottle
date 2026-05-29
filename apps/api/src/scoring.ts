@@ -7,6 +7,8 @@ export type DifyDrinkItem = {
 const MAX_ITEMS = 25;
 const MAX_AMOUNT = 20;
 const MAX_TOTAL_POINTS = 20;
+export const BONUS_RECEIPT_MULTIPLIER = 100;
+export const NON_BONUS_RECEIPT_POINTS_CAP = 2;
 
 function clampInt(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -94,4 +96,12 @@ export function applyPointsMultiplier(basePoints: number, multiplier: number): n
     throw new Error('points_multiplier_invalid');
   }
   return Math.floor(basePoints * multiplier);
+}
+
+export function computeReceiptAwardPoints(basePoints: number, multiplier: number): number {
+  if (!Number.isFinite(multiplier) || multiplier < 1) {
+    throw new Error('points_multiplier_invalid');
+  }
+  if (multiplier <= 1) return Math.min(basePoints, NON_BONUS_RECEIPT_POINTS_CAP);
+  return applyPointsMultiplier(basePoints, multiplier);
 }
