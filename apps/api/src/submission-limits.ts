@@ -1,7 +1,7 @@
 export const DAILY_SUCCESSFUL_RECEIPT_LIMIT = 1;
 export const VOTER_DAILY_TOTAL_UPLOAD_LIMIT = 2;
 export const NON_VOTER_WEEKLY_SUCCESSFUL_RECEIPT_LIMIT = 2;
-export const NON_VOTER_WEEKLY_TOTAL_UPLOAD_LIMIT = 2;
+export const NON_VOTER_WEEKLY_TOTAL_UPLOAD_LIMIT = 1;
 
 export type DayWindow = {
   startIso: string;

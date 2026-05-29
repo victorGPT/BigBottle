@@ -14,7 +14,7 @@ describe('submission limits', () => {
     expect(DAILY_SUCCESSFUL_RECEIPT_LIMIT).toBe(1);
     expect(VOTER_DAILY_TOTAL_UPLOAD_LIMIT).toBe(2);
     expect(NON_VOTER_WEEKLY_SUCCESSFUL_RECEIPT_LIMIT).toBe(2);
-    expect(NON_VOTER_WEEKLY_TOTAL_UPLOAD_LIMIT).toBe(2);
+    expect(NON_VOTER_WEEKLY_TOTAL_UPLOAD_LIMIT).toBe(1);
   });
 
   it('computes UTC calendar-day windows', () => {

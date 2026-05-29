@@ -190,7 +190,7 @@ Observable scan behavior:
 - The capture screen shows localized reward rule copy before upload:
 - VeBetterDAO voters and GM-NFT holders: one successful chance per day within a week and 100x receipt point multiplier.
   - Receipt uploads: at most two receipt uploads per user, including failed attempts; after two unsuccessful attempts no more are processed.
-- Users without vote or GM-NFT bonus privileges: at most two chances per week; each verified receipt is capped at 2 points (0.02 B3TR).
+- Users without vote or GM-NFT bonus privileges: at most one upload chance per week; each verified receipt is capped at 2 points (0.02 B3TR).
 
 Receipt quota enforcement:
 - `POST /submissions/init` rejects new uploads with `429` before issuing a presigned URL when quota is exhausted.
@@ -198,7 +198,7 @@ Receipt quota enforcement:
 - API error codes:
 - `daily_upload_limit_exceeded`: vote/GM-NFT bonus user already used two upload attempts for the UTC day.
 - `daily_verified_limit_exceeded`: vote/GM-NFT bonus user already has one verified receipt for the UTC day.
-- `weekly_upload_limit_exceeded`: user without vote/GM-NFT bonus already used two upload attempts for the UTC week.
+- `weekly_upload_limit_exceeded`: user without vote/GM-NFT bonus already used one upload attempt for the UTC week.
 - `weekly_verified_limit_exceeded`: user without vote/GM-NFT bonus already has two verified receipts for the UTC week.
 - The DB trigger `public.bb_enforce_daily_receipt_submission_limits()` is the final concurrency guard for these limits. Despite the historical function name, it now enforces voter daily limits and non-voter weekly limits.
 
@@ -507,6 +507,10 @@ Constraints:
 - Sets VeBetterDAO vote and GM-NFT achievement multipliers to 100x.
 - Updates the vote bonus generation function default multiplier to 100x.
 - Reprices unsettled verified receipts: vote/GM-NFT bonus receipts use `points_base * 100`, while receipts without vote/GM-NFT bonus privileges are capped at 2 points.
+
+### `supabase/migrations/20260529050002_nonbonus_weekly_upload_limit_one.sql`
+- Updates `public.bb_enforce_daily_receipt_submission_limits()` so users without vote/GM-NFT bonus privileges can insert at most one receipt submission per UTC week.
+- Keeps vote/GM-NFT bonus users on the daily quota: at most two upload attempts and one verified receipt per UTC day.
 
 ### `supabase/migrations/20260525104737_receipt_analyzer_usage.sql`
 Columns added to `public.receipt_submissions`:
