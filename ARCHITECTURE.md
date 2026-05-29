@@ -299,6 +299,7 @@ Auth:
 - `POST /auth/verify` -> `{ access_token: string, user: { id, wallet_address } }`
 - `GET /me` (auth) -> `{ user }`
 - Blacklisted wallets return `403 { error: "wallet_blacklisted" }` on auth challenge, auth verify, and authenticated API routes.
+- Reward-claim-blacklisted wallets can still authenticate and use the app, but reward quote availability is zeroed and claim source selection returns no receipt submissions.
 
 Account:
 - `GET /account/summary` (auth) -> `{ summary: { points_total: number, level: null } }`
@@ -549,6 +550,14 @@ Constraints / indexes:
 - Enables row-level security and revokes anon/authenticated table privileges.
 - Seeds `0x7e5abb955ccacd9d2c686f6153bf3756bb327177` with reason `farmer_suspected_no_vebetter_vote_bonus_eligibility`.
 - API and Edge Function reject blacklisted wallets during auth challenge, auth verify, and authenticated route access.
+
+### `supabase/migrations/20260529053557_hidden_reward_claim_blacklist.sql`
+- Adds `public.reward_claim_blacklist` keyed by lowercase `wallet_address`.
+- Seeds wallets that appeared as later global receipt timestamp duplicates, including already rejected `duplicate_receipt_time` rows and still-active claim-locked duplicate rows.
+- Adds `public.bb_is_reward_claim_blacklisted(user_id uuid) -> boolean`.
+- Replaces `public.bb_user_points_locked(user_id uuid)` so reward-claim-blacklisted users report all verified points as locked, making available claim points zero without blocking login or uploads.
+- Replaces `public.bb_reward_claim_source_submissions(user_id uuid)` so reward-claim-blacklisted users have no selectable reward claim sources.
+- Adds `public.bb_reject_reward_claim_blacklisted()` and trigger `reject_reward_claim_blacklisted` to reject direct inserts into `reward_claims` for these wallets.
 
 ### `supabase/migrations/20260208_z_account_summary.sql`
 Functions:
