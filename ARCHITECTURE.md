@@ -188,18 +188,18 @@ Flow:
 
 Observable scan behavior:
 - The capture screen shows localized reward rule copy before upload:
-  - VeBetterDAO voters: one successful chance per day within a week.
+- VeBetterDAO voters and GM-NFT holders: one successful chance per day within a week and 100x receipt point multiplier.
   - Receipt uploads: at most two receipt uploads per user, including failed attempts; after two unsuccessful attempts no more are processed.
-  - Non-voters: at most two chances per week.
+- Users without vote or GM-NFT bonus privileges: at most two chances per week; each verified receipt is capped at 2 points (0.02 B3TR).
 
 Receipt quota enforcement:
 - `POST /submissions/init` rejects new uploads with `429` before issuing a presigned URL when quota is exhausted.
 - `POST /submissions/:id/verify` rejects verification with `429` when the verified-receipt quota is exhausted.
 - API error codes:
-  - `daily_upload_limit_exceeded`: VeBetterDAO voter already used two upload attempts for the UTC day.
-  - `daily_verified_limit_exceeded`: VeBetterDAO voter already has one verified receipt for the UTC day.
-  - `weekly_upload_limit_exceeded`: non-voter already used two upload attempts for the UTC week.
-  - `weekly_verified_limit_exceeded`: non-voter already has two verified receipts for the UTC week.
+- `daily_upload_limit_exceeded`: vote/GM-NFT bonus user already used two upload attempts for the UTC day.
+- `daily_verified_limit_exceeded`: vote/GM-NFT bonus user already has one verified receipt for the UTC day.
+- `weekly_upload_limit_exceeded`: user without vote/GM-NFT bonus already used two upload attempts for the UTC week.
+- `weekly_verified_limit_exceeded`: user without vote/GM-NFT bonus already has two verified receipts for the UTC week.
 - The DB trigger `public.bb_enforce_daily_receipt_submission_limits()` is the final concurrency guard for these limits. Despite the historical function name, it now enforces voter daily limits and non-voter weekly limits.
 
 ### Receipt Result UI
@@ -502,6 +502,11 @@ Constraints:
 
 ### `supabase/migrations/202605180003_reprice_unsettled_receipt_points.sql`
 - Reprices existing verified receipt submissions that have not been attached to a `pending`, `submitted`, or `confirmed` reward claim source. These unsettled receipts are recalculated with `points_base <= 20` while preserving their stored multiplier.
+
+### `supabase/migrations/20260529044738_reward_multiplier_100_nonbonus_cap.sql`
+- Sets VeBetterDAO vote and GM-NFT achievement multipliers to 100x.
+- Updates the vote bonus generation function default multiplier to 100x.
+- Reprices unsettled verified receipts: vote/GM-NFT bonus receipts use `points_base * 100`, while receipts without vote/GM-NFT bonus privileges are capped at 2 points.
 
 ### `supabase/migrations/20260525104737_receipt_analyzer_usage.sql`
 Columns added to `public.receipt_submissions`:

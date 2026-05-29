@@ -908,7 +908,7 @@ const DEFAULT_ACHIEVEMENT_DEFINITIONS: Record<string, AchievementDefinition> = {
     badge: "governance",
     enabled: true,
     sort_order: 10,
-    base_multiplier: 10,
+    base_multiplier: 100,
     locked_tag_label: "投票用户",
     unlocked_tag_label_template: "投票用户",
     locked_description: "在 VeBetterDAO 任一投票中参与过投票，下期获得 BigPortal 积分加成。",
@@ -922,7 +922,7 @@ const DEFAULT_ACHIEVEMENT_DEFINITIONS: Record<string, AchievementDefinition> = {
     badge: "gm_nft",
     enabled: true,
     sort_order: 20,
-    base_multiplier: 10,
+    base_multiplier: 100,
     locked_tag_label: "GM-NFT",
     unlocked_tag_label_template: "GM-NFT · {{level_name}}",
     locked_description: "未检测到 GM-NFT。",
@@ -980,6 +980,16 @@ function applyPointsMultiplier(basePoints: number, multiplier: number): number {
     throw new Error("points_multiplier_invalid");
   }
   return Math.floor(basePoints * multiplier);
+}
+
+const NON_BONUS_RECEIPT_POINTS_CAP = 2;
+
+function computeReceiptAwardPoints(basePoints: number, multiplier: number): number {
+  if (!Number.isFinite(multiplier) || multiplier < 1) {
+    throw new Error("points_multiplier_invalid");
+  }
+  if (multiplier <= 1) return Math.min(basePoints, NON_BONUS_RECEIPT_POINTS_CAP);
+  return applyPointsMultiplier(basePoints, multiplier);
 }
 
 function computeAchievementTotalMultiplier(items: Array<{ unlocked: boolean; multiplier: number }>): number {
@@ -1229,6 +1239,32 @@ async function isVeBetterVoteUser(input: {
     return Boolean(vebetterVote);
   } catch (err) {
     console.warn("vote_limit_lookup_failed", { wallet: input.wallet, userId: input.userId, error: String(err) });
+    return false;
+  }
+}
+
+async function hasReceiptBonusPrivileges(input: {
+  config: AppConfig;
+  repo: ReturnType<typeof createRepo>;
+  userId: string;
+  wallet: string;
+  effectiveRoundId?: number;
+}): Promise<boolean> {
+  if (
+    await isVeBetterVoteUser({
+      repo: input.repo,
+      userId: input.userId,
+      wallet: input.wallet,
+      ...(input.effectiveRoundId === undefined ? {} : { effectiveRoundId: input.effectiveRoundId }),
+    })
+  ) {
+    return true;
+  }
+
+  try {
+    return Boolean(await getHighestGmNftByOwner(input.config, input.wallet));
+  } catch (err) {
+    console.warn("gm_nft_privilege_lookup_failed", { wallet: input.wallet, error: String(err) });
     return false;
   }
 }
@@ -2852,12 +2888,16 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       return jsonResponse(config, req, 200, { submission: existing, upload: null });
     }
 
-    const isVoter = await isVeBetterVoteUser({
+    const hasBonusPrivileges = await hasReceiptBonusPrivileges({
+      config,
       repo,
       userId: authed.sub,
       wallet: authed.wallet,
+      ...(config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID === undefined
+        ? {}
+        : { effectiveRoundId: config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID }),
     });
-    const quotaWindow = isVoter ? getUtcDayWindow() : getUtcWeekWindow();
+    const quotaWindow = hasBonusPrivileges ? getUtcDayWindow() : getUtcWeekWindow();
     const [uploadCount, verifiedCount] = await Promise.all([
       repo.countSubmissionsCreatedInWindow({
         user_id: authed.sub,
@@ -2870,7 +2910,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         end_iso: quotaWindow.endIso,
       }),
     ]);
-    if (isVoter) {
+    if (hasBonusPrivileges) {
       if (verifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
         return errorResponse(config, req, 429, "daily_verified_limit_exceeded");
       }
@@ -3041,12 +3081,16 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     if (submission.status === "pending_upload") {
       return errorResponse(config, req, 409, "upload_incomplete");
     }
-    const isVoter = await isVeBetterVoteUser({
+    const hasBonusPrivileges = await hasReceiptBonusPrivileges({
+      config,
       repo,
       userId: authed.sub,
       wallet: authed.wallet,
+      ...(config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID === undefined
+        ? {}
+        : { effectiveRoundId: config.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID }),
     });
-    const quotaWindow = isVoter
+    const quotaWindow = hasBonusPrivileges
       ? getUtcDayWindow(new Date(submission.created_at))
       : getUtcWeekWindow(new Date(submission.created_at));
     const verifiedCount = await repo.countVerifiedSubmissionsCreatedInWindow({
@@ -3054,7 +3098,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
       start_iso: quotaWindow.startIso,
       end_iso: quotaWindow.endIso,
     });
-    if (isVoter) {
+    if (hasBonusPrivileges) {
       if (verifiedCount >= DAILY_SUCCESSFUL_RECEIPT_LIMIT) {
         return errorResponse(config, req, 429, "daily_verified_limit_exceeded");
       }
@@ -3200,7 +3244,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
             })
           : EMPTY_RECEIPT_BONUS_SNAPSHOT;
       const earnedBasePoints = ok ? basePoints : 0;
-      const totalPoints = ok ? applyPointsMultiplier(earnedBasePoints, bonusSnapshot.multiplier) : 0;
+      const totalPoints = ok ? computeReceiptAwardPoints(earnedBasePoints, bonusSnapshot.multiplier) : 0;
       const finalStatus = ok ? (totalPoints > 0 ? "verified" : "not_claimable") : "rejected";
 
       const tFingerprint = performance.now();

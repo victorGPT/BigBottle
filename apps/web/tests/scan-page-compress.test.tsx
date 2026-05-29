@@ -61,9 +61,13 @@ describe('ScanPage', () => {
     render(<ScanPage />);
 
     expect(screen.getByText('Reward rules')).toBeInTheDocument();
-    expect(screen.getByText('Voters: 1 successful chance per day within each week.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Voters or GM-NFT holders: 1 successful chance per day within each week, with a 100x points multiplier.')
+    ).toBeInTheDocument();
     expect(screen.getByText(/each user can upload up to 2 receipts/)).toBeInTheDocument();
-    expect(screen.getByText('Non-voters: up to 2 chances per week.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Users without vote or GM-NFT bonuses: up to 2 chances per week, capped at 2 points (0.02 B3TR) per receipt.')
+    ).toBeInTheDocument();
   });
 
   it('retries upload with acl header when first put returns 403', async () => {
