@@ -64,9 +64,9 @@ describe('ScanPage', () => {
     expect(
       screen.getByText('Voters or GM-NFT holders: 1 successful chance per day within each week, with a 100x points multiplier.')
     ).toBeInTheDocument();
-    expect(screen.getByText(/each user can upload up to 2 receipts/)).toBeInTheDocument();
+    expect(screen.getByText(/voters or GM-NFT holders can upload up to 2 receipts per day/)).toBeInTheDocument();
     expect(
-      screen.getByText('Users without vote or GM-NFT bonuses: up to 2 chances per week, capped at 2 points (0.02 B3TR) per receipt.')
+      screen.getByText('Users without vote or GM-NFT bonuses: up to 1 receipt upload per week, capped at 2 points (0.02 B3TR) per receipt.')
     ).toBeInTheDocument();
   });
 

@@ -1288,7 +1288,7 @@ function isUniqueViolation(err: unknown): boolean {
 const DAILY_SUCCESSFUL_RECEIPT_LIMIT = 1;
 const VOTER_DAILY_TOTAL_UPLOAD_LIMIT = 2;
 const NON_VOTER_WEEKLY_SUCCESSFUL_RECEIPT_LIMIT = 2;
-const NON_VOTER_WEEKLY_TOTAL_UPLOAD_LIMIT = 2;
+const NON_VOTER_WEEKLY_TOTAL_UPLOAD_LIMIT = 1;
 
 function getUtcDayWindow(date = new Date()): { startIso: string; endIso: string } {
   const start = new Date(date);
