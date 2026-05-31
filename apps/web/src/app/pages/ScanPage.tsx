@@ -249,6 +249,7 @@ export default function ScanPage() {
               <li>{t('scan.rules.voter')}</li>
               <li>{t('scan.rules.upload')}</li>
               <li>{t('scan.rules.nonVoter')}</li>
+              <li>{t('scan.rules.timeWindow')}</li>
             </ul>
           </div>
         </div>

@@ -119,6 +119,7 @@ const locale = {
     "scan.rules.voter": "投票ユーザーまたは GM-NFT 保有者：1 週間のうち毎日 1 回、成功チャンスがあり、100 倍のポイント倍率が適用されます。",
     "scan.rules.upload": "レシートアップロード：投票ユーザーまたは GM-NFT 保有者は、失敗分も含めて 1 日最大 2 回までアップロードできます。",
     "scan.rules.nonVoter": "投票・GM-NFT ボーナスがないユーザー：1 週間に最大 1 枚まで。レシート 1 枚あたり最大 2 ポイント（0.02 B3TR）。",
+    "scan.rules.timeWindow": "レシート時間：現在時刻から過去 7 日以内。未来方向のずれは最大 12 時間まで許容されます。",
     "scan.captureReceipt": "レシートを撮影",
     "scan.status.ready": "準備完了",
     "scan.status.optimizing": "最適化中...",

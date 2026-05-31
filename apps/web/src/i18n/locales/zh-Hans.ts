@@ -119,6 +119,7 @@ const locale = {
     "scan.rules.voter": "投票或 GM-NFT 用户：一周内每天有 1 次成功机会，并享受 100 倍积分加成。",
     "scan.rules.upload": "小票上传：投票或 GM-NFT 用户每天最多 2 次上传，失败也计入。",
     "scan.rules.nonVoter": "无投票和 GM-NFT 加成用户：一周最多上传 1 张小票，每张最高 2 积分（0.02 B3TR）。",
+    "scan.rules.timeWindow": "小票时间：必须在当前时间前 7 天内；允许最多 12 小时的未来时间偏差。",
     "scan.captureReceipt": "拍摄小票",
     "scan.status.ready": "准备就绪",
     "scan.status.optimizing": "优化中...",
