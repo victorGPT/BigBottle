@@ -43,6 +43,8 @@ export type RewardsRepo = {
     points_claimed: number;
     b3tr_amount_wei: string;
     status: string;
+    risk_score?: number;
+    risk_reasons?: unknown;
   }) => Promise<DbRewardClaim>;
   updateRewardClaim: (
     id: string,
@@ -161,21 +163,23 @@ export async function refreshRewardClaimStatus(
   });
 }
 
-export async function createOrGetRewardClaimAndSubmit(input: {
+async function createOrGetRewardClaimWithSources(input: {
   repo: RewardsRepo;
-  chain: RewardsChain;
   userId: string;
   walletAddressLower: string;
   clientClaimId: string;
   isUniqueViolation: (err: unknown) => boolean;
-}): Promise<DbRewardClaim> {
-  const { repo, chain, userId, walletAddressLower, clientClaimId, isUniqueViolation } = input;
+  initialStatus: 'pending' | 'pending_review';
+  riskScore?: number;
+  riskReasons?: unknown;
+}): Promise<{ claim: DbRewardClaim; selectedSources: DbReceiptSubmission[] | null }> {
+  const { repo, userId, walletAddressLower, clientClaimId, isUniqueViolation } = input;
 
   const existing = await repo.getRewardClaimByClientId({ user_id: userId, client_claim_id: clientClaimId });
-  if (existing) return existing;
+  if (existing) return { claim: existing, selectedSources: null };
 
   const inflight = await repo.getInflightRewardClaim(userId);
-  if (inflight) return inflight;
+  if (inflight) return { claim: inflight, selectedSources: null };
 
   const quote = await getRewardsQuote(repo, userId);
   if (quote.points_available <= 0) {
@@ -197,14 +201,16 @@ export async function createOrGetRewardClaimAndSubmit(input: {
       points_per_b3tr_snapshot: quote.points_per_b3tr,
       points_claimed: quote.points_available,
       b3tr_amount_wei: amountWei.toString(),
-      status: 'pending'
+      status: input.initialStatus,
+      risk_score: input.riskScore ?? 0,
+      risk_reasons: input.riskReasons ?? []
     });
   } catch (err) {
     if (isUniqueViolation(err)) {
       const byClientId = await repo.getRewardClaimByClientId({ user_id: userId, client_claim_id: clientClaimId });
-      if (byClientId) return byClientId;
+      if (byClientId) return { claim: byClientId, selectedSources: null };
       const byInflight = await repo.getInflightRewardClaim(userId);
-      if (byInflight) return byInflight;
+      if (byInflight) return { claim: byInflight, selectedSources: null };
     }
     throw err;
   }
@@ -226,6 +232,66 @@ export async function createOrGetRewardClaimAndSubmit(input: {
         dify_drink_list: source.dify_drink_list
       }))
     );
+
+    return { claim, selectedSources };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    try {
+      await repo.updateRewardClaim(claim.id, {
+        status: 'failed',
+        failure_reason: reason
+      });
+    } catch {
+      // If updating fails, points may remain locked until manual intervention.
+    }
+    throw err;
+  }
+}
+
+export async function createOrGetRewardClaimRequest(input: {
+  repo: RewardsRepo;
+  userId: string;
+  walletAddressLower: string;
+  clientClaimId: string;
+  isUniqueViolation: (err: unknown) => boolean;
+  riskScore?: number;
+  riskReasons?: unknown;
+}): Promise<DbRewardClaim> {
+  const result = await createOrGetRewardClaimWithSources({
+    ...input,
+    initialStatus: 'pending_review'
+  });
+  return result.claim;
+}
+
+export async function createOrGetRewardClaimAndSubmit(input: {
+  repo: RewardsRepo;
+  chain: RewardsChain;
+  userId: string;
+  walletAddressLower: string;
+  clientClaimId: string;
+  isUniqueViolation: (err: unknown) => boolean;
+}): Promise<DbRewardClaim> {
+  const { repo, chain, userId, walletAddressLower, clientClaimId, isUniqueViolation } = input;
+
+  const result = await createOrGetRewardClaimWithSources({
+    repo,
+    userId,
+    walletAddressLower,
+    clientClaimId,
+    isUniqueViolation,
+    initialStatus: 'pending'
+  });
+  const { claim, selectedSources } = result;
+
+  if (claim.status !== 'pending') return claim;
+
+  try {
+    const amountWei = BigInt(claim.b3tr_amount_wei);
+    if (amountWei <= 0n) throw new Error('no_claimable_amount');
+    if (!selectedSources || selectedSources.length === 0) {
+      throw new Error('no_claimable_sources');
+    }
 
     const sourceSummaries = selectedSources.map((source) => {
       const summary = summarizeDrinkList(source.dify_drink_list);

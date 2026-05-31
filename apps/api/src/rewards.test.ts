@@ -2,7 +2,7 @@ import { Interface } from 'ethers';
 import { describe, expect, it, vi } from 'vitest';
 
 import { computeClaimableB3trWei } from './rewards.js';
-import { createOrGetRewardClaimAndSubmit, getRewardsPoolStatus } from './rewards-service.js';
+import { createOrGetRewardClaimAndSubmit, createOrGetRewardClaimRequest, getRewardsPoolStatus } from './rewards-service.js';
 import { createRewardsChain } from './vebetterRewards.js';
 import type { AppConfig } from './config.js';
 import type { DbReceiptSubmission, DbRewardClaim, DbRewardConversionRate } from './supabase.js';
@@ -21,6 +21,10 @@ function rewardClaim(overrides: Partial<DbRewardClaim> = {}): DbRewardClaim {
     tx_hash: null,
     raw_tx: null,
     failure_reason: null,
+    risk_score: 0,
+    risk_reasons: [],
+    reviewed_at: null,
+    review_note: null,
     created_at: '2026-05-08T00:00:00.000Z',
     updated_at: '2026-05-08T00:00:00.000Z',
     ...overrides
@@ -155,6 +159,54 @@ describe('rewards', () => {
     expect(metadata.sources.total_ml).toBe(1500);
     expect(metadata.sources.items_truncated).toBe(false);
     expect(metadata.sources.items[0].receipt_fingerprint).toBe('receipt-fingerprint');
+  });
+
+  it('queues public claim requests for review without chain submission', async () => {
+    const createdClaim = rewardClaim({ status: 'pending_review' });
+    let createInput: any = null;
+    let sourceInputs: any[] = [];
+    const repo = {
+      getUserPointsTotal: async () => 12,
+      getUserPointsLocked: async () => 0,
+      getActiveRewardConversionRate: async (): Promise<DbRewardConversionRate> => ({
+        id: createdClaim.conversion_rate_id,
+        points_per_b3tr: 10,
+        active: true,
+        created_at: '2026-05-08T00:00:00.000Z'
+      }),
+      getRewardClaimByClientId: async () => null,
+      getInflightRewardClaim: async () => null,
+      getRewardClaimById: async () => null,
+      listRewardClaimSourceSubmissions: async () => [submission()],
+      createRewardClaim: async (input: any) => {
+        createInput = input;
+        return createdClaim;
+      },
+      createRewardClaimSources: async (inputs: any[]) => {
+        sourceInputs = inputs;
+        return inputs;
+      },
+      updateRewardClaim: async (_id: string, patch: Partial<DbRewardClaim>) => ({
+        ...createdClaim,
+        ...patch
+      }),
+      listRewardClaims: async () => []
+    };
+
+    const claim = await createOrGetRewardClaimRequest({
+      repo,
+      userId: createdClaim.user_id,
+      walletAddressLower: createdClaim.wallet_address,
+      clientClaimId: createdClaim.client_claim_id,
+      isUniqueViolation: () => false
+    });
+
+    expect(claim.status).toBe('pending_review');
+    expect(createInput.status).toBe('pending_review');
+    expect(createInput.risk_score).toBe(0);
+    expect(createInput.risk_reasons).toEqual([]);
+    expect(sourceInputs).toHaveLength(1);
+    expect(sourceInputs[0].claim_id).toBe(createdClaim.id);
   });
 
   it('does not force a positive plastic reduction for one baseline bottle', async () => {

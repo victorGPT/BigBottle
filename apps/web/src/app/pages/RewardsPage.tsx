@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Coins } from 'lucide-react';
 import { useAuth } from '../../state/auth';
 import { apiGet, apiPost } from '../../util/api';
+import { getTurnstileToken } from '../../util/turnstile';
 
 type RewardsQuote = {
   points_total: number;
@@ -26,7 +27,7 @@ type RewardClaim = {
   points_claimed: number;
   b3tr_amount_wei: string;
   b3tr_amount: string;
-  status: 'pending' | 'submitted' | 'confirmed' | 'failed';
+  status: 'pending' | 'pending_review' | 'submitted' | 'confirmed' | 'failed' | 'rejected';
   tx_hash: string | null;
   failure_reason: string | null;
   created_at: string;
@@ -75,7 +76,10 @@ export default function RewardsPage() {
   const [isClaiming, setIsClaiming] = useState(false);
   const [settledClaim, setSettledClaim] = useState<RewardClaim | null>(null);
 
-  const inflight = useMemo(() => claims.find((c) => c.status === 'pending' || c.status === 'submitted') ?? null, [claims]);
+  const inflight = useMemo(
+    () => claims.find((c) => c.status === 'pending' || c.status === 'pending_review' || c.status === 'submitted') ?? null,
+    [claims]
+  );
   const claimStatus = inflight ?? settledClaim;
   const claimButtonLabel = getClaimButtonLabel({
     inflight,
@@ -138,6 +142,7 @@ export default function RewardsPage() {
   useEffect(() => {
     if (!token) return;
     if (!inflight) return;
+    if (inflight.status === 'pending_review') return;
 
     const id = inflight.id;
     let cancelled = false;
@@ -173,9 +178,13 @@ export default function RewardsPage() {
     setError(null);
     try {
       const clientClaimId = crypto.randomUUID();
+      const turnstileToken = await getTurnstileToken('reward_claim');
       const res = await apiPost<{ claim: RewardClaim }>(
         '/rewards/claim',
-        { client_claim_id: clientClaimId },
+        {
+          client_claim_id: clientClaimId,
+          ...(turnstileToken ? { turnstile_token: turnstileToken } : {})
+        },
         token
       );
       setClaims((prev) => {

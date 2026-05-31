@@ -74,6 +74,7 @@ type AppConfig = {
   FEE_DELEGATION_URL?: string;
   REWARD_DISTRIBUTOR_PRIVATE_KEY?: string;
   VEBETTER_CURRENT_EFFECTIVE_ROUND_ID?: number;
+  TURNSTILE_SECRET_KEY?: string;
   // VeChain mainnet config for GM-NFT lookup
   VECHAIN_THOR_URL?: string;
   VEBETTER_GALAXY_MEMBER_ADDRESS?: string;
@@ -130,6 +131,7 @@ function loadConfig(): AppConfig {
     VEBETTER_CURRENT_EFFECTIVE_ROUND_ID_RAW === undefined
       ? undefined
       : Number(VEBETTER_CURRENT_EFFECTIVE_ROUND_ID_RAW);
+  const TURNSTILE_SECRET_KEY = envString("TURNSTILE_SECRET_KEY");
 
   const missing: string[] = [];
   if (!JWT_SECRET) missing.push("JWT_SECRET");
@@ -169,7 +171,7 @@ function loadConfig(): AppConfig {
     if (!REWARD_DISTRIBUTOR_PRIVATE_KEY) missing.push("REWARD_DISTRIBUTOR_PRIVATE_KEY");
   }
   if (
-    VEBETTER_CURRENT_EFFECTIVE_ROUND_ID_RAW !== undefined &&
+    VEBETTER_CURRENT_EFFECTIVE_ROUND_ID !== undefined &&
     (!Number.isInteger(VEBETTER_CURRENT_EFFECTIVE_ROUND_ID) || VEBETTER_CURRENT_EFFECTIVE_ROUND_ID <= 0)
   ) {
     missing.push("VEBETTER_CURRENT_EFFECTIVE_ROUND_ID");
@@ -180,14 +182,14 @@ function loadConfig(): AppConfig {
 
   return {
     CORS_ORIGIN: envString("CORS_ORIGIN") ?? "*",
-    JWT_SECRET,
-    SUPABASE_URL,
-    SUPABASE_SERVICE_ROLE_KEY,
-    AWS_REGION,
-    S3_BUCKET,
+    JWT_SECRET: JWT_SECRET!,
+    SUPABASE_URL: SUPABASE_URL!,
+    SUPABASE_SERVICE_ROLE_KEY: SUPABASE_SERVICE_ROLE_KEY!,
+    AWS_REGION: AWS_REGION!,
+    S3_BUCKET: S3_BUCKET!,
     S3_PRESIGN_EXPIRES_SECONDS,
-    AWS_ACCESS_KEY_ID,
-    AWS_SECRET_ACCESS_KEY,
+    AWS_ACCESS_KEY_ID: AWS_ACCESS_KEY_ID!,
+    AWS_SECRET_ACCESS_KEY: AWS_SECRET_ACCESS_KEY!,
     AWS_SESSION_TOKEN: envString("AWS_SESSION_TOKEN"),
     RECEIPT_ANALYZER_PROVIDER,
     DIFY_MODE,
@@ -213,6 +215,7 @@ function loadConfig(): AppConfig {
     FEE_DELEGATION_URL,
     REWARD_DISTRIBUTOR_PRIVATE_KEY,
     VEBETTER_CURRENT_EFFECTIVE_ROUND_ID,
+    TURNSTILE_SECRET_KEY,
     // GM-NFT lookup defaults
     VECHAIN_THOR_URL: envString("VECHAIN_THOR_URL") ?? "https://mainnet.vechain.org",
     VEBETTER_GALAXY_MEMBER_ADDRESS: envString("VEBETTER_GALAXY_MEMBER_ADDRESS") ?? "0x93B8cD34A7Fc4f53271b9011161F7A2B5fEA9D1F",
@@ -345,6 +348,10 @@ type DbRewardClaim = {
   tx_hash: string | null;
   raw_tx: string | null;
   failure_reason: string | null;
+  risk_score: number;
+  risk_reasons: unknown;
+  reviewed_at: string | null;
+  review_note: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -355,6 +362,21 @@ type DbRewardClaimSource = {
   points_total: number;
   receipt_fingerprint: string | null;
   dify_drink_list: unknown | null;
+  created_at: string;
+};
+
+type DbAbuseEvent = {
+  id: string;
+  event_type: string;
+  user_id: string | null;
+  wallet_address: string | null;
+  ip_hash: string | null;
+  user_agent_hash: string | null;
+  turnstile_required: boolean;
+  turnstile_passed: boolean | null;
+  risk_score: number;
+  risk_reasons: unknown;
+  metadata: unknown;
   created_at: string;
 };
 
@@ -613,7 +635,7 @@ function createRepo(supabase: SupabaseClient) {
         .from("reward_claims")
         .select("*")
         .eq("user_id", userId)
-        .in("status", ["pending", "submitted"])
+        .in("status", ["pending", "pending_review", "submitted"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -635,6 +657,8 @@ function createRepo(supabase: SupabaseClient) {
       points_claimed: number;
       b3tr_amount_wei: string;
       status: string;
+      risk_score?: number;
+      risk_reasons?: unknown;
     }): Promise<DbRewardClaim> {
       const res = await supabase.from("reward_claims").insert(input).select("*").single();
       return ensureOk(res, "Failed to create reward claim") as DbRewardClaim;
@@ -673,6 +697,22 @@ function createRepo(supabase: SupabaseClient) {
         .order("created_at", { ascending: false })
         .limit(limit);
       return ensureOk(res, "Failed to list reward claims") as DbRewardClaim[];
+    },
+
+    async recordAbuseEvent(input: {
+      event_type: string;
+      user_id: string | null;
+      wallet_address: string | null;
+      ip_hash: string | null;
+      user_agent_hash: string | null;
+      turnstile_required: boolean;
+      turnstile_passed: boolean | null;
+      risk_score: number;
+      risk_reasons: unknown;
+      metadata: unknown;
+    }): Promise<DbAbuseEvent> {
+      const res = await supabase.from("abuse_events").insert(input).select("*").single();
+      return ensureOk(res, "Failed to record abuse event") as DbAbuseEvent;
     },
 
     async getLatestUserBonusEligibility(input: {
@@ -884,6 +924,105 @@ async function requireAuth(config: AppConfig, req: Request): Promise<AuthedUser 
   const m = auth.match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
   return await verifyAccessToken(config, m[1] ?? "");
+}
+
+type TurnstileAction = "submission_init" | "reward_claim";
+
+type TurnstileVerifyResult =
+  | { ok: true; skipped?: boolean }
+  | { ok: false; error: "turnstile_required" | "turnstile_invalid" | "turnstile_unavailable" };
+
+function getRequestHeader(req: Request, names: string[]): string | null {
+  for (const name of names) {
+    const value = req.headers.get(name);
+    if (value?.trim()) return value.trim();
+  }
+  return null;
+}
+
+function getClientIp(req: Request): string | null {
+  const forwarded = getRequestHeader(req, ["cf-connecting-ip", "x-real-ip", "x-forwarded-for"]);
+  return forwarded?.split(",")[0]?.trim() || null;
+}
+
+function getUserAgent(req: Request): string | null {
+  return getRequestHeader(req, ["user-agent"]);
+}
+
+async function hashSignal(config: AppConfig, value: string | null): Promise<string | null> {
+  if (!value) return null;
+  return await sha256Hex(`${config.JWT_SECRET}:${value}`);
+}
+
+async function verifyTurnstileToken(input: {
+  config: AppConfig;
+  token: string | undefined;
+  remoteIp: string | null;
+  expectedAction: TurnstileAction;
+}): Promise<TurnstileVerifyResult> {
+  const secret = input.config.TURNSTILE_SECRET_KEY?.trim();
+  if (!secret) return { ok: true, skipped: true };
+
+  const token = input.token?.trim();
+  if (!token) return { ok: false, error: "turnstile_required" };
+
+  const body = new FormData();
+  body.set("secret", secret);
+  body.set("response", token);
+  if (input.remoteIp) body.set("remoteip", input.remoteIp);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      body,
+      signal: controller.signal,
+    });
+    if (!res.ok) return { ok: false, error: "turnstile_unavailable" };
+    const payload = await res.json() as { success?: boolean; action?: string };
+    if (!payload.success) return { ok: false, error: "turnstile_invalid" };
+    if (payload.action && payload.action !== input.expectedAction) {
+      return { ok: false, error: "turnstile_invalid" };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "turnstile_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function turnstileStatusCode(result: TurnstileVerifyResult): number {
+  return !result.ok && result.error === "turnstile_unavailable" ? 503 : 400;
+}
+
+async function recordAbuseEvent(input: {
+  repo: ReturnType<typeof createRepo>;
+  config: AppConfig;
+  req: Request;
+  eventType: TurnstileAction;
+  userId: string;
+  wallet: string;
+  turnstile: TurnstileVerifyResult;
+  metadata?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    await input.repo.recordAbuseEvent({
+      event_type: input.eventType,
+      user_id: input.userId,
+      wallet_address: input.wallet,
+      ip_hash: await hashSignal(input.config, getClientIp(input.req)),
+      user_agent_hash: await hashSignal(input.config, getUserAgent(input.req)),
+      turnstile_required: Boolean(input.config.TURNSTILE_SECRET_KEY),
+      turnstile_passed: input.turnstile.ok ? true : false,
+      risk_score: 0,
+      risk_reasons: [],
+      metadata: input.metadata ?? {},
+    });
+  } catch (err) {
+    console.warn("abuse_event_record_failed", err);
+  }
 }
 
 // --- Achievements + GM-NFT lookup ---
@@ -1338,6 +1477,7 @@ const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
 
 // --- Scoring ---
 type DifyDrinkItem = {
+  retinfoDrinkName?: unknown;
   retinfoDrinkCapacity?: unknown;
   retinfoDrinkAmount?: unknown;
 };
@@ -1775,18 +1915,20 @@ async function refreshRewardClaimStatus(
   });
 }
 
-async function createOrGetRewardClaimAndSubmit(input: {
+async function createOrGetRewardClaimWithSources(input: {
   repo: ReturnType<typeof createRepo>;
-  chain: RewardsChain;
   userId: string;
   walletAddressLower: string;
   clientClaimId: string;
-}): Promise<DbRewardClaim> {
-  const { repo, chain, userId, walletAddressLower, clientClaimId } = input;
+  initialStatus: "pending" | "pending_review";
+  riskScore?: number;
+  riskReasons?: unknown;
+}): Promise<{ claim: DbRewardClaim; selectedSources: DbReceiptSubmission[] | null }> {
+  const { repo, userId, walletAddressLower, clientClaimId } = input;
   const existing = await repo.getRewardClaimByClientId({ user_id: userId, client_claim_id: clientClaimId });
-  if (existing) return existing;
+  if (existing) return { claim: existing, selectedSources: null };
   const inflight = await repo.getInflightRewardClaim(userId);
-  if (inflight) return inflight;
+  if (inflight) return { claim: inflight, selectedSources: null };
 
   const quote = await getRewardsQuote(repo, userId);
   if (quote.points_available <= 0) throw new Error("no_claimable_points");
@@ -1803,14 +1945,16 @@ async function createOrGetRewardClaimAndSubmit(input: {
       points_per_b3tr_snapshot: quote.points_per_b3tr,
       points_claimed: quote.points_available,
       b3tr_amount_wei: amountWei.toString(),
-      status: "pending",
+      status: input.initialStatus,
+      risk_score: input.riskScore ?? 0,
+      risk_reasons: input.riskReasons ?? [],
     });
   } catch (err) {
     if (isUniqueViolation(err)) {
       const byClientId = await repo.getRewardClaimByClientId({ user_id: userId, client_claim_id: clientClaimId });
-      if (byClientId) return byClientId;
+      if (byClientId) return { claim: byClientId, selectedSources: null };
       const byInflight = await repo.getInflightRewardClaim(userId);
-      if (byInflight) return byInflight;
+      if (byInflight) return { claim: byInflight, selectedSources: null };
     }
     throw err;
   }
@@ -1832,6 +1976,57 @@ async function createOrGetRewardClaimAndSubmit(input: {
         dify_drink_list: source.dify_drink_list,
       })),
     );
+
+    return { claim, selectedSources };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    try {
+      await repo.updateRewardClaim(claim.id, { status: "failed", failure_reason: reason });
+    } catch {
+      // Points may remain locked until manual intervention.
+    }
+    throw err;
+  }
+}
+
+async function createOrGetRewardClaimRequest(input: {
+  repo: ReturnType<typeof createRepo>;
+  userId: string;
+  walletAddressLower: string;
+  clientClaimId: string;
+  riskScore?: number;
+  riskReasons?: unknown;
+}): Promise<DbRewardClaim> {
+  const result = await createOrGetRewardClaimWithSources({
+    ...input,
+    initialStatus: "pending_review",
+  });
+  return result.claim;
+}
+
+async function createOrGetRewardClaimAndSubmit(input: {
+  repo: ReturnType<typeof createRepo>;
+  chain: RewardsChain;
+  userId: string;
+  walletAddressLower: string;
+  clientClaimId: string;
+}): Promise<DbRewardClaim> {
+  const { repo, chain, userId, walletAddressLower, clientClaimId } = input;
+  const result = await createOrGetRewardClaimWithSources({
+    repo,
+    userId,
+    walletAddressLower,
+    clientClaimId,
+    initialStatus: "pending",
+  });
+  const { claim, selectedSources } = result;
+
+  if (claim.status !== "pending") return claim;
+
+  try {
+    const amountWei = BigInt(claim.b3tr_amount_wei);
+    if (amountWei <= 0n) throw new Error("no_claimable_amount");
+    if (!selectedSources || selectedSources.length === 0) throw new Error("no_claimable_sources");
 
     const sourceSummaries = selectedSources.map((source) => {
       const summary = summarizeDrinkList(source.dify_drink_list);
@@ -2615,7 +2810,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     const effectiveRoundId =
       effectiveRoundIdRaw === null ? undefined : Number(effectiveRoundIdRaw);
     if (
-      effectiveRoundIdRaw !== null &&
+      effectiveRoundId !== undefined &&
       (!Number.isInteger(effectiveRoundId) || effectiveRoundId <= 0)
     ) {
       return errorResponse(config, req, 400, "invalid_query");
@@ -2791,11 +2986,32 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     if (!isRecord(body)) return errorResponse(config, req, 400, "invalid_body");
     const clientClaimId = parseUuid(body.client_claim_id);
     if (!clientClaimId) return errorResponse(config, req, 400, "invalid_body");
+    const turnstileToken = typeof body.turnstile_token === "string" ? body.turnstile_token : undefined;
+    const repo = getRepo();
+
+    const turnstile = await verifyTurnstileToken({
+      config,
+      token: turnstileToken,
+      remoteIp: getClientIp(req),
+      expectedAction: "reward_claim",
+    });
+    await recordAbuseEvent({
+      repo,
+      config,
+      req,
+      eventType: "reward_claim",
+      userId: authed.sub,
+      wallet: authed.wallet,
+      turnstile,
+      metadata: { client_claim_id: clientClaimId },
+    });
+    if (!turnstile.ok) {
+      return errorResponse(config, req, turnstileStatusCode(turnstile), turnstile.error);
+    }
 
     try {
-      const claim = await createOrGetRewardClaimAndSubmit({
-        repo: getRepo(),
-        chain: getRewardsChain(),
+      const claim = await createOrGetRewardClaimRequest({
+        repo,
         userId: authed.sub,
         walletAddressLower: authed.wallet,
         clientClaimId,
@@ -2862,6 +3078,7 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
     const contentTypeRaw = typeof body.content_type === "string" ? body.content_type : "";
     if (!clientSubmissionId || !contentTypeRaw)
       return errorResponse(config, req, 400, "invalid_body");
+    const turnstileToken = typeof body.turnstile_token === "string" ? body.turnstile_token : undefined;
 
     const existing = await repo.getSubmissionByClientId({
       user_id: authed.sub,
@@ -2886,6 +3103,26 @@ const handleRequest: (config: AppConfig) => HttpHandler = (config) => async (req
         });
       }
       return jsonResponse(config, req, 200, { submission: existing, upload: null });
+    }
+
+    const turnstile = await verifyTurnstileToken({
+      config,
+      token: turnstileToken,
+      remoteIp: getClientIp(req),
+      expectedAction: "submission_init",
+    });
+    await recordAbuseEvent({
+      repo,
+      config,
+      req,
+      eventType: "submission_init",
+      userId: authed.sub,
+      wallet: authed.wallet,
+      turnstile,
+      metadata: { client_submission_id: clientSubmissionId },
+    });
+    if (!turnstile.ok) {
+      return errorResponse(config, req, turnstileStatusCode(turnstile), turnstile.error);
     }
 
     const hasBonusPrivileges = await hasReceiptBonusPrivileges({

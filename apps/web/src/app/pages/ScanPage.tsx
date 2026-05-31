@@ -6,6 +6,7 @@ import Screen from '../components/Screen';
 import { useAuth } from '../../state/auth';
 import { apiPost } from '../../util/api';
 import { compressReceiptImage } from '../../util/receiptImageCompression';
+import { getTurnstileToken } from '../../util/turnstile';
 
 type Submission = {
   id: string;
@@ -102,9 +103,14 @@ export default function ScanPage() {
     setPhase('uploading');
 
     const clientSubmissionId = crypto.randomUUID();
+    const turnstileToken = await getTurnstileToken('submission_init');
     const init = await apiPost<InitResponse>(
       '/submissions/init',
-      { client_submission_id: clientSubmissionId, content_type: uploadFile.type || 'application/octet-stream' },
+      {
+        client_submission_id: clientSubmissionId,
+        content_type: uploadFile.type || 'application/octet-stream',
+        ...(turnstileToken ? { turnstile_token: turnstileToken } : {})
+      },
       token
     );
     setProgressValue(48);
