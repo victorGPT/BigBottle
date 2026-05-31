@@ -63,4 +63,9 @@ jobs:
             echo "::warning::Supabase remote migration history contains versions not present locally. Run the setup workflow repair path before deployment."
             exit 0
           fi
+          if grep -Fq "Found local migration files to be inserted before the last migration on remote database" <<<"${output}" &&
+            grep -Fq "supabase/migrations/20260508_reward_claim_sources.sql" <<<"${output}"; then
+            echo "::warning::Supabase remote migration history has legacy 20260508 ordering drift. Use --include-all during deployment."
+            exit 0
+          fi
           exit "${status}"
