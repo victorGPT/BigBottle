@@ -3,7 +3,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { z } from 'zod';
-import { randomBytes, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import { Interface, getAddress } from 'ethers';
 
 import './types.js';
@@ -21,7 +21,7 @@ import { createS3Client, deleteObject, headObject, presignGetObject, presignPutO
 import { extractReceiptAnalyzerPayload, runReceiptAnalyzer } from './receipt-analyzer.js';
 import { getPostgresErrorCode, isUniqueViolation } from './postgres-errors.js';
 import {
-  createOrGetRewardClaimAndSubmit,
+  createOrGetRewardClaimRequest,
   getRewardsPoolStatus,
   getRewardsQuote,
   listRewardClaims,
@@ -38,6 +38,7 @@ import {
   getUtcWeekWindow,
   isSubmissionLimitError
 } from './submission-limits.js';
+import { verifyTurnstileToken, type TurnstileAction, type TurnstileVerifyResult } from './turnstile.js';
 
 type AuthedRequest = {
   user: { sub: string; wallet: string };
@@ -89,7 +90,10 @@ const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
 
 const SubmissionIdParams = z.object({ id: z.string().uuid() });
 const RewardClaimIdParams = z.object({ id: z.string().uuid() });
-const RewardClaimBody = z.object({ client_claim_id: z.string().uuid() });
+const RewardClaimBody = z.object({
+  client_claim_id: z.string().uuid(),
+  turnstile_token: z.string().optional()
+});
 const RewardClaimsQuery = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20)
 });
@@ -137,6 +141,65 @@ function requireAuth(repo: ReturnType<typeof createRepo>) {
       return reply.code(403).send({ error: 'wallet_blacklisted' });
     }
   };
+}
+
+function getHeaderValue(headers: Record<string, unknown>, names: string[]): string | null {
+  for (const name of names) {
+    const value = headers[name] ?? headers[name.toLowerCase()];
+    if (typeof value === 'string' && value.trim()) return value;
+    if (Array.isArray(value)) {
+      const first = value.find((item) => typeof item === 'string' && item.trim());
+      if (first) return first;
+    }
+  }
+  return null;
+}
+
+function getClientIp(request: any): string | null {
+  const forwarded = getHeaderValue(request.headers ?? {}, ['cf-connecting-ip', 'x-real-ip', 'x-forwarded-for']);
+  const ip = forwarded?.split(',')[0]?.trim() || (typeof request.ip === 'string' ? request.ip.trim() : '');
+  return ip || null;
+}
+
+function getUserAgent(request: any): string | null {
+  return getHeaderValue(request.headers ?? {}, ['user-agent']);
+}
+
+function hashSignal(secret: string, value: string | null): string | null {
+  if (!value) return null;
+  return createHash('sha256').update(`${secret}:${value}`).digest('hex');
+}
+
+function turnstileStatusCode(result: TurnstileVerifyResult): number {
+  return !result.ok && result.error === 'turnstile_unavailable' ? 503 : 400;
+}
+
+async function recordAbuseEvent(input: {
+  repo: ReturnType<typeof createRepo>;
+  config: ReturnType<typeof loadConfig>;
+  request: any;
+  eventType: TurnstileAction;
+  userId: string;
+  wallet: string;
+  turnstile: TurnstileVerifyResult;
+  metadata?: Record<string, unknown>;
+}) {
+  try {
+    await input.repo.recordAbuseEvent({
+      event_type: input.eventType,
+      user_id: input.userId,
+      wallet_address: input.wallet,
+      ip_hash: hashSignal(input.config.JWT_SECRET, getClientIp(input.request)),
+      user_agent_hash: hashSignal(input.config.JWT_SECRET, getUserAgent(input.request)),
+      turnstile_required: Boolean(input.config.TURNSTILE_SECRET_KEY),
+      turnstile_passed: input.turnstile.ok ? true : false,
+      risk_score: 0,
+      risk_reasons: [],
+      metadata: input.metadata ?? {}
+    });
+  } catch (err) {
+    input.request.log?.warn({ err }, 'abuse_event_record_failed');
+  }
 }
 
 async function rejectBlacklistedWallet(input: {
@@ -595,10 +658,29 @@ async function main() {
 
     const { sub: userId, wallet: walletAddressLower } = (request as AuthedRequest).user;
 
+    const turnstile = await verifyTurnstileToken({
+      config,
+      token: parsed.data.turnstile_token,
+      remoteIp: getClientIp(request),
+      expectedAction: 'reward_claim'
+    });
+    await recordAbuseEvent({
+      repo,
+      config,
+      request,
+      eventType: 'reward_claim',
+      userId,
+      wallet: walletAddressLower,
+      turnstile,
+      metadata: { client_claim_id: parsed.data.client_claim_id }
+    });
+    if (!turnstile.ok) {
+      return reply.code(turnstileStatusCode(turnstile)).send({ error: turnstile.error });
+    }
+
     try {
-      const claim = await createOrGetRewardClaimAndSubmit({
+      const claim = await createOrGetRewardClaimRequest({
         repo: repo as any,
-        chain: rewardsChain,
         userId,
         walletAddressLower,
         clientClaimId: parsed.data.client_claim_id,
@@ -650,7 +732,8 @@ async function main() {
   // --- Submissions ---
   const InitSubmissionBody = z.object({
     client_submission_id: z.string().uuid(),
-    content_type: z.string().min(1)
+    content_type: z.string().min(1),
+    turnstile_token: z.string().optional()
   });
 
   app.post('/submissions/init', { preHandler: authenticate }, async (request: any, reply) => {
@@ -676,6 +759,26 @@ async function main() {
         return reply.send({ submission: existing, upload: { method: 'PUT', ...upload } });
       }
       return reply.send({ submission: existing, upload: null });
+    }
+
+    const turnstile = await verifyTurnstileToken({
+      config,
+      token: parsed.data.turnstile_token,
+      remoteIp: getClientIp(request),
+      expectedAction: 'submission_init'
+    });
+    await recordAbuseEvent({
+      repo,
+      config,
+      request,
+      eventType: 'submission_init',
+      userId,
+      wallet,
+      turnstile,
+      metadata: { client_submission_id: parsed.data.client_submission_id }
+    });
+    if (!turnstile.ok) {
+      return reply.code(turnstileStatusCode(turnstile)).send({ error: turnstile.error });
     }
 
     const hasBonusPrivileges = await hasReceiptBonusPrivileges({

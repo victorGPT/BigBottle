@@ -68,6 +68,10 @@ export type DbRewardClaim = {
   tx_hash: string | null;
   raw_tx: string | null;
   failure_reason: string | null;
+  risk_score: number;
+  risk_reasons: unknown;
+  reviewed_at: string | null;
+  review_note: string | null;
 
   created_at: string;
   updated_at: string;
@@ -79,6 +83,21 @@ export type DbRewardClaimSource = {
   points_total: number;
   receipt_fingerprint: string | null;
   dify_drink_list: unknown | null;
+  created_at: string;
+};
+
+export type DbAbuseEvent = {
+  id: string;
+  event_type: string;
+  user_id: string | null;
+  wallet_address: string | null;
+  ip_hash: string | null;
+  user_agent_hash: string | null;
+  turnstile_required: boolean;
+  turnstile_passed: boolean | null;
+  risk_score: number;
+  risk_reasons: unknown;
+  metadata: unknown;
   created_at: string;
 };
 
@@ -341,7 +360,7 @@ export function createRepo(supabase: SupabaseClient) {
         .from('reward_claims')
         .select('*')
         .eq('user_id', userId)
-        .in('status', ['pending', 'submitted'])
+        .in('status', ['pending', 'pending_review', 'submitted'])
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -363,6 +382,8 @@ export function createRepo(supabase: SupabaseClient) {
       points_claimed: number;
       b3tr_amount_wei: string;
       status: string;
+      risk_score?: number;
+      risk_reasons?: unknown;
     }): Promise<DbRewardClaim> {
       const res = await supabase
         .from('reward_claims')
@@ -408,6 +429,31 @@ export function createRepo(supabase: SupabaseClient) {
         .order('created_at', { ascending: false })
         .limit(limit);
       return ensureOk(res, 'Failed to list reward claims') as DbRewardClaim[];
+    },
+
+    async recordAbuseEvent(input: {
+      event_type: 'submission_init' | 'reward_claim';
+      user_id: string | null;
+      wallet_address: string | null;
+      ip_hash: string | null;
+      user_agent_hash: string | null;
+      turnstile_required: boolean;
+      turnstile_passed: boolean | null;
+      risk_score?: number;
+      risk_reasons?: unknown;
+      metadata?: unknown;
+    }): Promise<DbAbuseEvent> {
+      const res = await supabase
+        .from('abuse_events')
+        .insert({
+          ...input,
+          risk_score: input.risk_score ?? 0,
+          risk_reasons: input.risk_reasons ?? [],
+          metadata: input.metadata ?? {}
+        })
+        .select('*')
+        .single();
+      return ensureOk(res, 'Failed to record abuse event') as DbAbuseEvent;
     },
 
     async getLatestUserBonusEligibility(input: {

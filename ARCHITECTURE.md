@@ -180,7 +180,7 @@ File: `apps/web/src/app/pages/ScanPage.tsx`
 
 Flow:
 1. Compress image (best-effort) -> `compressReceiptImage(file)`.
-2. Init submission: `POST /submissions/init` (idempotent per `client_submission_id`).
+2. Init submission: `POST /submissions/init` (idempotent per `client_submission_id`; new uploads include `turnstile_token` when `VITE_TURNSTILE_SITE_KEY` is configured).
 3. Upload to S3 with the presigned PUT URL (if provided).
 4. Mark complete: `POST /submissions/:id/complete`.
 5. Start background verification: `POST /submissions/:id/verify`.
@@ -195,6 +195,7 @@ Observable scan behavior:
 - Receipt time must be within the last 7 days, with up to 12 hours of future-time drift allowed for timezone/OCR variance.
 
 Receipt quota enforcement:
+- When `TURNSTILE_SECRET_KEY` is configured, `POST /submissions/init` requires a valid Cloudflare Turnstile token for new uploads. Existing idempotent submissions can still refresh their presigned URL without another challenge.
 - `POST /submissions/init` rejects new uploads with `429` before issuing a presigned URL when quota is exhausted.
 - `POST /submissions/:id/verify` rejects verification with `429` when the verified-receipt quota is exhausted.
 - API error codes:
@@ -311,15 +312,16 @@ Rewards (Phase 2):
 - `GET /rewards/pool` (auth) -> `{ pool: { b3tr_available_funds_wei, b3tr_available_funds, rewards_pool_address, app_id, network, updated_at } }`
 - `GET /rewards/quote` (auth) -> `{ quote: { points_total, points_locked, points_available, points_per_b3tr, conversion_rate_id, b3tr_amount_wei, b3tr_amount } }`
 - `POST /rewards/claim` (auth) -> `{ claim }`
-  - request: `{ client_claim_id: uuid }`
-  - On-chain broadcast failure marks the persisted claim `failed` with `failure_reason` so points are released for a later claim attempt.
+  - request: `{ client_claim_id: uuid, turnstile_token?: string }`
+  - When `TURNSTILE_SECRET_KEY` is configured, the route requires a valid Cloudflare Turnstile token.
+  - The route creates or returns a `pending_review` claim and links verified receipt sources; it does not immediately sign or broadcast the on-chain transaction.
 - `GET /rewards/claims` (auth) -> `{ claims }`
 - `GET /rewards/claims/:id` (auth) -> `{ claim }` (best-effort receipt refresh)
   - 503 error: `rewards_unconfigured` (may include missing env var names as `rewards_unconfigured:<CSV>`)
 
 Submissions:
 - `POST /submissions/init` (auth) -> `{ submission, upload: { method: 'PUT', url, headers } | null }`
-  - request: `{ client_submission_id: uuid, content_type: string }`
+  - request: `{ client_submission_id: uuid, content_type: string, turnstile_token?: string }`
 - `POST /submissions/:id/complete` (auth) -> `{ submission }`
 - `POST /submissions/:id/verify` (auth) -> `{ submission }`
   - Claims `uploaded -> verifying`, schedules receipt analysis in the background, and returns immediately with the current submission state.
@@ -332,9 +334,10 @@ Health:
 - `GET /health` -> `{ ok: true }`
 
 Rewards implementation (Phase 2):
-- `apps/api/src/rewards-service.ts`: quote + idempotent claim orchestration
+- `apps/api/src/rewards-service.ts`: quote + idempotent claim orchestration; public claim requests enter `pending_review`, while the retained submit path still signs/broadcasts when called by backend settlement code.
 - `apps/api/src/vebetterRewards.ts`: VeChain delegated tx signing/broadcast + receipt polling
 - `apps/api/src/rewards.ts`: points -> B3TR conversion helpers
+- `apps/api/src/turnstile.ts`: Cloudflare Turnstile server verification for protected write routes.
 
 Receipt analyzer implementation:
 - `apps/api/src/receipt-analyzer.ts`: provider boundary for receipt extraction/verification; selects Dify or Temporal based on `RECEIPT_ANALYZER_PROVIDER`.
@@ -355,7 +358,8 @@ Per brief: `docs/plans/2026-02-06-mvp-receipt-verification-brief.md`
 
 Rewards claim idempotency:
 - `client_claim_id` is the idempotency key (unique per user)
-- At most one in-flight claim per user (`pending`/`submitted`)
+- At most one in-flight claim per user (`pending`/`pending_review`/`submitted`)
+- Public claim creation returns `pending_review` so points are locked while reward payout is reviewed or settled by backend operations.
 - Reward transactions persist `tx_hash` and `raw_tx` before broadcast; if broadcast is rejected, the claim transitions to `failed` instead of remaining `submitted`.
 
 ### Points and Dedup
@@ -386,6 +390,8 @@ File: `supabase/functions/api/index.ts`
 - Deno runtime Edge Function
 - Mirrors the local Fastify routes under `apps/api` for Phase 1 and Phase 2
 - Implements the production `/rewards/pool` chain read route for reward distribution pool balance display
+- Mirrors Turnstile-gated submission init / reward claim routes and writes abuse telemetry to `public.abuse_events`.
+- Public `/rewards/claim` creates `pending_review` claims instead of broadcasting reward transactions inline.
 - Mirrors reward claim broadcast failure handling from `apps/api`: persisted claims are marked `failed` when raw transaction broadcast is rejected.
 - Imports VeChain SDK npm dependencies statically so the self-hosted Supabase Edge Runtime includes package constraints during function compilation.
 - `supabase/functions/api/package.json` pins Edge Function npm dependencies, including `viem@2.21.54`, because newer transitive `viem` releases can reference non-npm dependencies rejected by Deno.
@@ -419,6 +425,8 @@ Config:
   - `FEE_DELEGATION_URL`
   - `REWARD_DISTRIBUTOR_PRIVATE_KEY`
   - `VEBETTER_CURRENT_EFFECTIVE_ROUND_ID` (optional; limits vote bonus lookup to the active effective round for receipt verification and achievement display)
+- Anti-abuse env vars:
+  - `TURNSTILE_SECRET_KEY` (optional; when set, `POST /submissions/init` and `POST /rewards/claim` require Cloudflare Turnstile tokens)
 
 ## Database (Supabase Postgres)
 
@@ -605,6 +613,22 @@ Trigger / functions:
 Columns added to `public.reward_claims`:
 - `raw_tx text` (persisted signed delegated tx for replay/diagnostics)
 
+### `supabase/migrations/20260529062000_reward_claim_review_and_abuse_events.sql`
+Changes to `public.reward_claims`:
+- Extends status values to include `pending_review` and `rejected`.
+- Adds `risk_score integer`, `risk_reasons jsonb`, `reviewed_at timestamptz`, and `review_note text`.
+- Rebuilds the one-in-flight partial unique index to include `pending_review`.
+
+Tables:
+- `public.abuse_events`
+  - Stores protected write-route telemetry for `submission_init` and `reward_claim`.
+  - Includes `user_id`, `wallet_address`, hashed IP / user-agent signals, Turnstile required/pass flags, risk fields, metadata, and `created_at`.
+  - RLS is enabled and anon/authenticated roles have no direct table privileges.
+
+Functions:
+- `public.bb_user_points_locked(user_id uuid)` treats `pending_review` as locked.
+- `public.bb_reward_claim_source_submissions(user_id uuid)` excludes receipts already attached to `pending_review` claims.
+
 ## External Integrations and Trust Boundaries
 
 VeChain wallets (VeWorld / Sync2 / WalletConnect):
@@ -617,6 +641,10 @@ VeChain / VeBetterDAO (Phase 2 rewards):
 - Gasless claim uses delegated transactions (VIP-191) with a VIP-201 sponsor service URL.
 - Backend is the transaction origin (holds `REWARD_DISTRIBUTOR_PRIVATE_KEY`); users do not sign claim txs.
 - `scripts/ci/sync-vote-bonus.mjs` syncs VeBetterDAO `allocationVotes` into `public.vote_wallet_mapping`, enriches VeDelegate pool voter rows through `veDelegateAccounts.token.owner`, and generates 100x `public.bigbottle_vote_bonus_eligibility` rows for the effective round.
+
+Cloudflare Turnstile:
+- Web helper `apps/web/src/util/turnstile.ts` loads the official Turnstile script and returns invisible challenge tokens when `VITE_TURNSTILE_SITE_KEY` is configured.
+- API and Edge routes verify tokens server-side with `TURNSTILE_SECRET_KEY`; if the secret is omitted, local/dev routes skip Turnstile and still record abuse telemetry as not required.
 
 Dify:
 - Backend must not trust `user_id` in Dify output for auth.

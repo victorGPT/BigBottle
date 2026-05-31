@@ -1,0 +1,226 @@
+{
+  "version": "5",
+  "npm": {
+    "@adraffy/ens-normalize@1.10.1": {
+      "integrity": "sha512-96Z2IP3mYmF1Xg2cDm8f1gWGf/HUVedQ3FMifV4kG/PQ4yEP51xDtRAEfhVNt5f/uzpNkZHwWQuUcu6D6K+Ekw=="
+    },
+    "@ethereumjs/rlp@5.0.2": {
+      "integrity": "sha512-DziebCdg4JpGlEqEdGgXmjqcFoJi+JGulUXwEjsZGAscAQ7MyD/7LE/GVCP29vEQxKc7AAwjT3A2ywHp2xfoCA==",
+      "bin": true
+    },
+    "@noble/ciphers@1.3.0": {
+      "integrity": "sha512-2I0gnIVPtfnMw9ee9h1dJG7tp81+8Ob3OJb3Mv37rx5L40/b0i7djjCVvGOVqc9AEIQyvyu1i6ypKdFw8R8gQw=="
+    },
+    "@noble/curves@1.2.0": {
+      "integrity": "sha512-oYclrNgRaM9SsBUBVbb8M6DTV7ZHRTKugureoYEncY5c65HOmRzvSiTE3y5CYaPYJA/GVkrhXEoF0M3Ya9PMnw==",
+      "dependencies": [
+        "@noble/hashes@1.3.2"
+      ]
+    },
+    "@noble/curves@1.7.0": {
+      "integrity": "sha512-UTMhXK9SeDhFJVrHeUJ5uZlI6ajXg10O6Ddocf9S6GjbSBVZsJo88HzKwXznNfGpMTRDyJkqMjNDPYgf0qFWnw==",
+      "dependencies": [
+        "@noble/hashes@1.6.0"
+      ]
+    },
+    "@noble/curves@1.9.7": {
+      "integrity": "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==",
+      "dependencies": [
+        "@noble/hashes@1.8.0"
+      ]
+    },
+    "@noble/hashes@1.3.2": {
+      "integrity": "sha512-MVC8EAQp7MvEcm30KWENFjgR+Mkmf+D189XJTkFIlwohU5hcBbn1ZkKq7KVTi2Hme3PMGF390DaL52beVrIihQ=="
+    },
+    "@noble/hashes@1.6.0": {
+      "integrity": "sha512-YUULf0Uk4/mAA89w+k3+yUYh6NrEvxZa5T6SY3wlMvE2chHkxFUUIDI8/XW1QSC357iA5pSnqt7XEhvFOqmDyQ=="
+    },
+    "@noble/hashes@1.6.1": {
+      "integrity": "sha512-pq5D8h10hHBjyqX+cfBm0i8JUXJ0UhczFc4r74zbuT9XgewFo2E3J1cOaGtdZynILNmQ685YWGzGE1Zv6io50w=="
+    },
+    "@noble/hashes@1.8.0": {
+      "integrity": "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="
+    },
+    "@scure/base@1.2.6": {
+      "integrity": "sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg=="
+    },
+    "@scure/bip32@1.6.0": {
+      "integrity": "sha512-82q1QfklrUUdXJzjuRU7iG7D7XiFx5PHYVS0+oeNKhyDLT7WPqs6pBcM2W5ZdwOwKCwoE1Vy1se+DHjcXwCYnA==",
+      "dependencies": [
+        "@noble/curves@1.7.0",
+        "@noble/hashes@1.6.1",
+        "@scure/base"
+      ]
+    },
+    "@scure/bip39@1.5.0": {
+      "integrity": "sha512-Dop+ASYhnrwm9+HA/HwXg7j2ZqM6yk2fyLWb5znexjctFY3+E+eU8cIWI0Pql0Qx4hPZCijlGq4OL71g+Uz30A==",
+      "dependencies": [
+        "@noble/hashes@1.6.1",
+        "@scure/base"
+      ]
+    },
+    "@scure/bip39@1.6.0": {
+      "integrity": "sha512-+lF0BbLiJNwVlev4eKelw1WWLaiKXw7sSl8T6FvBlWkdX+94aGJ4o8XjUdlyhTCjd8c+B3KT3JfS8P0bLRNU6A==",
+      "dependencies": [
+        "@noble/hashes@1.8.0",
+        "@scure/base"
+      ]
+    },
+    "@types/node@22.7.5": {
+      "integrity": "sha512-jML7s2NAzMWc//QSJ1a3prpk78cOPchGvXJsC3C6R6PSMoooztvRVQEz89gmBTBY1SPMaqo5teB4uNHPdetShQ==",
+      "dependencies": [
+        "undici-types"
+      ]
+    },
+    "@vechain/sdk-core@2.0.7": {
+      "integrity": "sha512-thIvP/8z8hN2LCV4cWinCTR3PdlJ9Yf5Hofp0EfB6McXL49qbVN/jo9iYj1RuQ3Uq+Um7qWuctbROsXVKOr84A==",
+      "dependencies": [
+        "@ethereumjs/rlp",
+        "@noble/ciphers",
+        "@noble/curves@1.9.7",
+        "@noble/hashes@1.8.0",
+        "@scure/base",
+        "@scure/bip32",
+        "@scure/bip39@1.6.0",
+        "@vechain/sdk-errors",
+        "@vechain/sdk-logging",
+        "abitype@1.2.4",
+        "ethers",
+        "fast-json-stable-stringify",
+        "viem"
+      ]
+    },
+    "@vechain/sdk-errors@2.0.7": {
+      "integrity": "sha512-MECekhZlgpoq4Qu0W2D1fXn1m8uAopZKZJWBvvwmNQ6ZgNjz/0dIewcQAFBZh0OIwwyYlbVXdwb00+WF0m3sjQ=="
+    },
+    "@vechain/sdk-logging@2.0.7": {
+      "integrity": "sha512-aok9LYAhgA16/41PH6ozuBWqxO0N9JDDlQBQ1AJj4ha+sQDE62J4iByNshXAoQxGUvQZaqGRZyFJ+QQAvmlcQw==",
+      "dependencies": [
+        "@vechain/sdk-errors"
+      ]
+    },
+    "@vechain/sdk-network@2.0.7": {
+      "integrity": "sha512-tt8CEf7JQXpbYYRPNHgzBUCOEGzxxn+cH5GOL2dVEod4k8sYaoGRL7AAXVu7VS/c49FY3GLFMtDCZ6e8ovlKfg==",
+      "dependencies": [
+        "@noble/curves@1.9.7",
+        "@vechain/sdk-core",
+        "@vechain/sdk-errors",
+        "@vechain/sdk-logging",
+        "abitype@1.0.8",
+        "ethers",
+        "viem"
+      ]
+    },
+    "abitype@1.0.7": {
+      "integrity": "sha512-ZfYYSktDQUwc2eduYu8C4wOs+RDPmnRYMh7zNfzeMtGGgb0U+6tLGjixUic6mXf5xKKCcgT5Qp6cv39tOARVFw=="
+    },
+    "abitype@1.0.8": {
+      "integrity": "sha512-ZeiI6h3GnW06uYDLx0etQtX/p8E24UaHHBj57RSjK7YBFe7iuVn07EDpOeP451D06sF27VOz9JJPlIKJmXgkEg=="
+    },
+    "abitype@1.2.4": {
+      "integrity": "sha512-dpKH+N27vRjarMVTFFkeY445VTKftzGWpL0FiT7xmVmzQRKazZexzC5uHG0f6XKsVLAuUlndnbGau6lRejClxg=="
+    },
+    "aes-js@4.0.0-beta.5": {
+      "integrity": "sha512-G965FqalsNyrPqgEGON7nIx1e/OVENSgiEIzyC63haUMuvNnwIgIjMs52hlTCKhkBny7A2ORNlfY9Zu+jmGk1Q=="
+    },
+    "aws4fetch@1.0.20": {
+      "integrity": "sha512-/djoAN709iY65ETD6LKCtyyEI04XIBP5xVvfmNxsEP0uJB5tyaGBztSryRr4HqMStr9R06PisQE7m9zDTXKu6g=="
+    },
+    "ethers@6.15.0": {
+      "integrity": "sha512-Kf/3ZW54L4UT0pZtsY/rf+EkBU7Qi5nnhonjUb8yTXcxH3cdcWrV2cRyk0Xk/4jK6OoHhxxZHriyhje20If2hQ==",
+      "dependencies": [
+        "@adraffy/ens-normalize",
+        "@noble/curves@1.2.0",
+        "@noble/hashes@1.3.2",
+        "@types/node",
+        "aes-js",
+        "tslib",
+        "ws@8.17.1"
+      ]
+    },
+    "eventemitter3@5.0.1": {
+      "integrity": "sha512-GWkBvjiSZK87ELrYOSESUYeVIc9mvLLf/nXalMOS5dYrgZq9o5OVkbZAVM06CVxYsCwH9BDZFPlQTlPA1j4ahA=="
+    },
+    "fast-json-stable-stringify@2.1.0": {
+      "integrity": "sha512-lhd/wF+Lk98HZoTCtlVraHtfh5XYijIjalXck7saUtuanSDyLMxnHhSXEDJqHxD7msR8D0uCmqlkwjCV8xvwHw=="
+    },
+    "isows@1.0.6_ws@8.18.0": {
+      "integrity": "sha512-lPHCayd40oW98/I0uvgaHKWCSvkzY27LjWLbtzOm64yQ+G3Q5npjjbdppU65iZXkK1Zt+kH9pfegli0AYfwYYw==",
+      "dependencies": [
+        "ws@8.18.0"
+      ]
+    },
+    "jose@5.2.4": {
+      "integrity": "sha512-6ScbIk2WWCeXkmzF6bRPmEuaqy1m8SbsRFMa/FLrSCkGIhj8OLVG/IH+XHVmNMx/KUo8cVWEE6oKR4dJ+S0Rkg=="
+    },
+    "ox@0.1.2": {
+      "integrity": "sha512-ak/8K0Rtphg9vnRJlbOdaX9R7cmxD2MiSthjWGaQdMk3D7hrAlDoM+6Lxn7hN52Za3vrXfZ7enfke/5WjolDww==",
+      "dependencies": [
+        "@adraffy/ens-normalize",
+        "@noble/curves@1.9.7",
+        "@noble/hashes@1.8.0",
+        "@scure/bip32",
+        "@scure/bip39@1.6.0",
+        "abitype@1.2.4",
+        "eventemitter3"
+      ]
+    },
+    "tslib@2.7.0": {
+      "integrity": "sha512-gLXCKdN1/j47AiHiOkJN69hJmcbGTHI0ImLmbYLHykhgeN0jVGola9yVjFgzCUklsZQMW55o+dW7IXv3RCXDzA=="
+    },
+    "undici-types@6.19.8": {
+      "integrity": "sha512-ve2KP6f/JnbPBFyobGHuerC9g1FYGn/F8n1LWTwNxCEzd6IfqTwUQcNXgEtmmQ6DlRrC1hrSrBnCZPokRrDHjw=="
+    },
+    "viem@2.21.54": {
+      "integrity": "sha512-G9mmtbua3UtnVY9BqAtWdNp+3AO+oWhD0B9KaEsZb6gcrOWgmA4rz02yqEMg+qW9m6KgKGie7q3zcHqJIw6AqA==",
+      "dependencies": [
+        "@noble/curves@1.7.0",
+        "@noble/hashes@1.6.1",
+        "@scure/bip32",
+        "@scure/bip39@1.5.0",
+        "abitype@1.0.7",
+        "isows",
+        "ox",
+        "webauthn-p256",
+        "ws@8.18.0"
+      ]
+    },
+    "webauthn-p256@0.0.10": {
+      "integrity": "sha512-EeYD+gmIT80YkSIDb2iWq0lq2zbHo1CxHlQTeJ+KkCILWpVy3zASH3ByD4bopzfk0uCwXxLqKGLqp2W4O28VFA==",
+      "dependencies": [
+        "@noble/curves@1.9.7",
+        "@noble/hashes@1.8.0"
+      ]
+    },
+    "ws@8.17.1": {
+      "integrity": "sha512-6XQFvXTkbfUOZOKKILFG1PDK2NDQs4azKQl26T0YS5CxqWLgXajbPZ+h4gZekJyRqFU8pvnbAbbs/3TgRPy+GQ=="
+    },
+    "ws@8.18.0": {
+      "integrity": "sha512-8VbfWfHLbbwu3+N6OKsOMpBdT4kXPDDB9cJk2bJ6mh9ucxdlnNvH1e+roYkKmN9Nxw2yjz7VzeO9oOz2zJ04Pw=="
+    }
+  },
+  "remote": {
+    "https://deno.land/std@0.224.0/async/delay.ts": "f90dd685b97c2f142b8069082993e437b1602b8e2561134827eeb7c12b95c499",
+    "https://deno.land/std@0.224.0/http/server.ts": "f9313804bf6467a1704f45f76cb6cd0a3396a3b31c316035e6a4c2035d1ea514",
+    "https://esm.sh/@supabase/supabase-js@2.57.4?target=deno": "18aef9a038c2b651ef3550941c3ff2de02a0827d9f9b03aa304e66198a53e945"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@chakra-ui/anatomy@^2.3.4",
+        "npm:@chakra-ui/react@^2.10.9",
+        "npm:@emotion/cache@^11.14.0",
+        "npm:@emotion/react@^11.14.0",
+        "npm:@emotion/styled@^11.14.1",
+        "npm:@tanstack/react-query-devtools@^5.91.3",
+        "npm:@tanstack/react-query@^5.90.21",
+        "npm:@vechain/dapp-kit-react@2.1.0-rc.5",
+        "npm:framer-motion@^11.18.2",
+        "npm:lit-html@^3.3.2",
+        "npm:lit@^3.3.2",
+        "npm:motion@^12.35.1",
+        "npm:qrcode@^1.5.4"
+      ]
+    }
+  }
+}
