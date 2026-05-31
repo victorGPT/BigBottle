@@ -31,7 +31,7 @@ High-level flow:
 3. Backend issues a presigned S3 PUT URL (idempotent by `client_submission_id`).
 4. Client uploads to S3, then marks the submission as uploaded.
 5. Backend presigns a GET URL for the image, calls Dify, computes points, and persists results.
-6. Verified receipts are deduplicated by DB fingerprint and by per-user receipt timestamp at second precision.
+6. Verified receipts are deduplicated by DB fingerprint and by global receipt timestamp at second precision.
 
 Specs / single sources of truth for business rules:
 - MVP receipt verification + scoring: `docs/plans/2026-02-06-mvp-receipt-verification-brief.md`
@@ -189,8 +189,10 @@ Flow:
 Observable scan behavior:
 - The capture screen shows localized reward rule copy before upload:
 - VeBetterDAO voters and GM-NFT holders: one successful chance per day within a week and 100x receipt point multiplier.
+  - VeDelegate pool voters are treated as VeBetterDAO voters when the pool account is mapped back to the owning wallet.
   - Receipt uploads: at most two receipt uploads per user, including failed attempts; after two unsuccessful attempts no more are processed.
 - Users without vote or GM-NFT bonus privileges: at most one upload chance per week; each verified receipt is capped at 2 points (0.02 B3TR).
+- Receipt time must be within the last 7 days, with up to 12 hours of future-time drift allowed for timezone/OCR variance.
 
 Receipt quota enforcement:
 - When `TURNSTILE_SECRET_KEY` is configured, `POST /submissions/init` requires a valid Cloudflare Turnstile token for new uploads. Existing idempotent submissions can still refresh their presigned URL without another challenge.
@@ -202,7 +204,7 @@ Receipt quota enforcement:
 - `weekly_upload_limit_exceeded`: user without vote/GM-NFT bonus already used one upload attempt for the UTC week.
 - `weekly_verified_limit_exceeded`: user without vote/GM-NFT bonus already has two verified receipts for the UTC week.
 - The DB trigger `public.bb_enforce_daily_receipt_submission_limits()` is the final concurrency guard for these limits. Despite the historical function name, it now enforces voter daily limits and non-voter weekly limits.
-- The DB trigger `public.bb_reject_duplicate_receipt_time_second()` rejects later `verified` submissions when the same user already has a verified receipt with the same normalized `YYYY-MM-DD HH:MI:SS` receipt timestamp. The first verified row is kept; later rows become `status = rejected`, `rejection_code = duplicate_receipt_time`, and `duplicate_of = <first row id>`.
+- The DB trigger `public.bb_reject_duplicate_receipt_time_second()` rejects later `verified` submissions when any user already has a verified receipt with the same normalized `YYYY-MM-DD HH:MI:SS` receipt timestamp. The first verified row is kept globally; later rows become `status = rejected`, `rejection_code = duplicate_receipt_time`, and `duplicate_of = <first row id>`.
 
 ### Receipt Result UI
 File: `apps/web/src/app/pages/ResultPage.tsx`
@@ -300,6 +302,7 @@ Auth:
 - `POST /auth/verify` -> `{ access_token: string, user: { id, wallet_address } }`
 - `GET /me` (auth) -> `{ user }`
 - Blacklisted wallets return `403 { error: "wallet_blacklisted" }` on auth challenge, auth verify, and authenticated API routes.
+- Reward-claim-blacklisted wallets can still authenticate and use the app, but reward quote availability is zeroed and claim source selection returns no receipt submissions.
 
 Account:
 - `GET /account/summary` (auth) -> `{ summary: { points_total: number, level: null } }`
@@ -499,6 +502,13 @@ Backfill:
 Indexes:
 - `receipt_submissions_user_receipt_time_second_verified_idx` supports duplicate lookup for verified receipt timestamps.
 
+### `supabase/migrations/20260529051828_global_receipt_time_second_dedup.sql`
+- Replaces the per-user receipt timestamp duplicate rule with a global rule.
+- Drops `receipt_submissions_user_receipt_time_second_verified_idx`.
+- Adds `receipt_submissions_receipt_time_second_verified_idx` for global verified timestamp lookup.
+- Replaces `public.bb_reject_duplicate_receipt_time_second()` so its advisory lock and duplicate lookup use only the normalized receipt timestamp, not `user_id`.
+- Re-runs the historical backfill globally, rejecting later duplicates only when they are not already locked by a `pending`, `submitted`, or `confirmed` reward claim source.
+
 ### `supabase/migrations/202605090001_receipt_points_audit.sql`
 Columns added to `public.receipt_submissions`:
 - `points_base integer not null default 0`
@@ -550,6 +560,17 @@ Constraints / indexes:
 - Enables row-level security and revokes anon/authenticated table privileges.
 - Seeds `0x7e5abb955ccacd9d2c686f6153bf3756bb327177` with reason `farmer_suspected_no_vebetter_vote_bonus_eligibility`.
 - API and Edge Function reject blacklisted wallets during auth challenge, auth verify, and authenticated route access.
+
+### `supabase/migrations/20260529053557_hidden_reward_claim_blacklist.sql`
+- Adds `public.reward_claim_blacklist` keyed by lowercase `wallet_address`.
+- Seeds wallets that appeared as later global receipt timestamp duplicates, including already rejected `duplicate_receipt_time` rows and still-active claim-locked duplicate rows.
+- Adds `public.bb_is_reward_claim_blacklisted(user_id uuid) -> boolean`.
+- Replaces `public.bb_user_points_locked(user_id uuid)` so reward-claim-blacklisted users report all verified points as locked, making available claim points zero without blocking login or uploads.
+- Replaces `public.bb_reward_claim_source_submissions(user_id uuid)` so reward-claim-blacklisted users have no selectable reward claim sources.
+- Adds `public.bb_reject_reward_claim_blacklisted()` and trigger `reject_reward_claim_blacklisted` to reject direct inserts into `reward_claims` for these wallets.
+
+### `supabase/migrations/202605310001_receipt_fingerprint_pgcrypto_schema.sql`
+- Replaces `public.bb_receipt_fingerprint(receipt_time_raw text, dify_drink_list jsonb)` so it calls `extensions.digest(...)` explicitly. This keeps receipt dedup hashing working on self-hosted Supabase instances where `pgcrypto` is installed in the `extensions` schema instead of `public`.
 
 ### `supabase/migrations/20260208_z_account_summary.sql`
 Functions:
@@ -619,6 +640,7 @@ VeChain / VeBetterDAO (Phase 2 rewards):
 - Reward pool display reads the user-claim distribution pool from `X2EarnRewardsPool.rewardsPoolBalance(VEBETTER_APP_ID)`.
 - Gasless claim uses delegated transactions (VIP-191) with a VIP-201 sponsor service URL.
 - Backend is the transaction origin (holds `REWARD_DISTRIBUTOR_PRIVATE_KEY`); users do not sign claim txs.
+- `scripts/ci/sync-vote-bonus.mjs` syncs VeBetterDAO `allocationVotes` into `public.vote_wallet_mapping`, enriches VeDelegate pool voter rows through `veDelegateAccounts.token.owner`, and generates 100x `public.bigbottle_vote_bonus_eligibility` rows for the effective round.
 
 Cloudflare Turnstile:
 - Web helper `apps/web/src/util/turnstile.ts` loads the official Turnstile script and returns invisible challenge tokens when `VITE_TURNSTILE_SITE_KEY` is configured.
