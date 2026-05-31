@@ -560,6 +560,9 @@ Constraints / indexes:
 - Replaces `public.bb_reward_claim_source_submissions(user_id uuid)` so reward-claim-blacklisted users have no selectable reward claim sources.
 - Adds `public.bb_reject_reward_claim_blacklisted()` and trigger `reject_reward_claim_blacklisted` to reject direct inserts into `reward_claims` for these wallets.
 
+### `supabase/migrations/202605310001_receipt_fingerprint_pgcrypto_schema.sql`
+- Replaces `public.bb_receipt_fingerprint(receipt_time_raw text, dify_drink_list jsonb)` so it calls `extensions.digest(...)` explicitly. This keeps receipt dedup hashing working on self-hosted Supabase instances where `pgcrypto` is installed in the `extensions` schema instead of `public`.
+
 ### `supabase/migrations/20260208_z_account_summary.sql`
 Functions:
 - `public.bb_user_points_total(user_id uuid) -> integer`
