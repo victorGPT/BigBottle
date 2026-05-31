@@ -169,9 +169,10 @@ async function run() {
     console.log("[rewards-api-smoke] PASS contract POST /rewards/claim claim.b3tr_amount is string");
   } else if (
     (createClaim.status === 409 && createClaim.json?.error === "insufficient_points") ||
-    (createClaim.status === 400 && createClaim.json?.error === "no_claimable_points")
+    (createClaim.status === 400 && createClaim.json?.error === "no_claimable_points") ||
+    (createClaim.status === 400 && createClaim.json?.error === "turnstile_required")
   ) {
-    console.log(`[rewards-api-smoke] PASS POST /rewards/claim -> ${createClaim.json.error} (expected for empty account)`);
+    console.log(`[rewards-api-smoke] PASS POST /rewards/claim -> ${createClaim.json.error} (expected guarded response)`);
   } else if (createClaim.status === 404 || createClaim.json?.error === "not_found") {
     fail("POST /rewards/claim with auth returned not_found", createClaim);
   } else {
