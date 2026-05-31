@@ -189,6 +189,7 @@ Flow:
 Observable scan behavior:
 - The capture screen shows localized reward rule copy before upload:
 - VeBetterDAO voters and GM-NFT holders: one successful chance per day within a week and 100x receipt point multiplier.
+  - VeDelegate pool voters are treated as VeBetterDAO voters when the pool account is mapped back to the owning wallet.
   - Receipt uploads: at most two receipt uploads per user, including failed attempts; after two unsuccessful attempts no more are processed.
 - Users without vote or GM-NFT bonus privileges: at most one upload chance per week; each verified receipt is capped at 2 points (0.02 B3TR).
 
@@ -611,6 +612,7 @@ VeChain / VeBetterDAO (Phase 2 rewards):
 - Reward pool display reads the user-claim distribution pool from `X2EarnRewardsPool.rewardsPoolBalance(VEBETTER_APP_ID)`.
 - Gasless claim uses delegated transactions (VIP-191) with a VIP-201 sponsor service URL.
 - Backend is the transaction origin (holds `REWARD_DISTRIBUTOR_PRIVATE_KEY`); users do not sign claim txs.
+- `scripts/ci/sync-vote-bonus.mjs` syncs VeBetterDAO `allocationVotes` into `public.vote_wallet_mapping`, enriches VeDelegate pool voter rows through `veDelegateAccounts.token.owner`, and generates 100x `public.bigbottle_vote_bonus_eligibility` rows for the effective round.
 
 Dify:
 - Backend must not trust `user_id` in Dify output for auth.

@@ -8,6 +8,10 @@ const BIGBOTTLE_APP_ID = (
   process.env.VEBETTER_APP_ID ||
   '0x68c854d0aef9f5517d58d4772395d0ab44d914070fa6ca5a96f2146ca1449248'
 ).toLowerCase();
+const VEDELEGATE_ACCOUNT_LOOKUP_BATCH_SIZE = parsePositiveInt(
+  process.env.VEDELEGATE_ACCOUNT_LOOKUP_BATCH_SIZE,
+  500
+);
 const RETAIN_ROUNDS = parsePositiveInt(process.env.RETAIN_ROUNDS, 4);
 const BATCH_SIZE = parsePositiveInt(process.env.SUPABASE_BATCH_SIZE, 500);
 const DRY_RUN = process.env.DRY_RUN === 'true';
@@ -150,6 +154,77 @@ async function fetchAllocationVotes(sourceRound) {
   };
 }
 
+async function fetchVeDelegateAccountOwners(addresses) {
+  const unique = [...new Set(addresses.map((address) => String(address).toLowerCase()).filter(Boolean))];
+  const owners = new Map();
+
+  for (let i = 0; i < unique.length; i += VEDELEGATE_ACCOUNT_LOOKUP_BATCH_SIZE) {
+    const ids = unique.slice(i, i + VEDELEGATE_ACCOUNT_LOOKUP_BATCH_SIZE);
+    const data = await graphQuery(
+      `query($ids: [String!]!) {
+        veDelegateAccounts(first: 1000, where: { id_in: $ids }) {
+          id
+          token {
+            owner { id }
+          }
+        }
+      }`,
+      { ids }
+    );
+
+    for (const account of data.veDelegateAccounts ?? []) {
+      const poolAddress = String(account.id ?? '').toLowerCase();
+      const ownerAddress = String(account.token?.owner?.id ?? '').toLowerCase();
+      if (poolAddress && ownerAddress && poolAddress !== ownerAddress) {
+        owners.set(poolAddress, ownerAddress);
+      }
+    }
+  }
+
+  return owners;
+}
+
+async function appendVeDelegateOwnerMappings(rows) {
+  const poolOwners = await fetchVeDelegateAccountOwners(rows.map((row) => row.voter_address));
+  if (poolOwners.size === 0) {
+    return { rows, veDelegateMappings: 0 };
+  }
+
+  const byPair = new Map(rows.map((row) => [`${row.passport_address}:${row.voter_address}`, row]));
+
+  for (const row of rows) {
+    const ownerAddress = poolOwners.get(row.voter_address);
+    if (!ownerAddress) continue;
+
+    const key = `${ownerAddress}:${row.voter_address}`;
+    const current = byPair.get(key);
+    if (current) {
+      current.voted_any_app ||= row.voted_any_app;
+      current.voted_bigbottle ||= row.voted_bigbottle;
+      current.apps_voted_count = Math.max(current.apps_voted_count, row.apps_voted_count);
+      if (row.first_vote_at && (!current.first_vote_at || row.first_vote_at < current.first_vote_at)) {
+        current.first_vote_at = row.first_vote_at;
+      }
+      if (row.last_vote_at && (!current.last_vote_at || row.last_vote_at > current.last_vote_at)) {
+        current.last_vote_at = row.last_vote_at;
+      }
+      continue;
+    }
+
+    byPair.set(key, {
+      ...row,
+      passport_address: ownerAddress,
+      source: 'vedelegate_subgraph'
+    });
+  }
+
+  const enrichedRows = [...byPair.values()];
+  return {
+    rows: enrichedRows,
+    veDelegateMappings: enrichedRows.filter((row) => row.source === 'vedelegate_subgraph').length
+  };
+}
+
 async function upsertVoteMappings(rows) {
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const chunk = rows.slice(i, i + BATCH_SIZE);
@@ -237,9 +312,10 @@ async function main() {
   console.log(`[vote-bonus-sync] graph=${GRAPH_URL}`);
   console.log(`[vote-bonus-sync] source_round=${sourceRound} effective_round=${currentRound}`);
 
-  const { fetched, rows } = await fetchAllocationVotes(sourceRound);
+  const { fetched, rows: allocationRows } = await fetchAllocationVotes(sourceRound);
+  const { rows, veDelegateMappings } = await appendVeDelegateOwnerMappings(allocationRows);
   console.log(
-    `[vote-bonus-sync] allocation_vote_rows=${fetched} distinct_passport_voter_pairs=${rows.length}`
+    `[vote-bonus-sync] allocation_vote_rows=${fetched} distinct_passport_voter_pairs=${allocationRows.length} vedelegate_owner_pairs=${veDelegateMappings} total_pairs=${rows.length}`
   );
 
   if (DRY_RUN) {
@@ -250,7 +326,9 @@ async function main() {
           source_round: sourceRound,
           effective_round: currentRound,
           allocation_vote_rows: fetched,
-          distinct_passport_voter_pairs: rows.length
+          distinct_passport_voter_pairs: allocationRows.length,
+          vedelegate_owner_pairs: veDelegateMappings,
+          total_pairs: rows.length
         },
         null,
         2
@@ -270,7 +348,7 @@ async function main() {
     p_source_round_id: sourceRound,
     p_effective_round_id: currentRound,
     p_bonus_type: 'vebetter_vote_bonus',
-    p_bonus_multiplier: 10,
+    p_bonus_multiplier: 100,
     p_source: 'vebetter_subgraph'
   });
   const refreshedEligibility = await rpc('bb_refresh_bonus_eligibility_user_ids', {
@@ -292,6 +370,8 @@ async function main() {
         source_round: sourceRound,
         effective_round: currentRound,
         allocation_vote_rows: fetched,
+        distinct_passport_voter_pairs: allocationRows.length,
+        vedelegate_owner_pairs: veDelegateMappings,
         vote_mapping_count: mappingCount,
         generated_eligibility: generatedEligibility,
         eligibility_count: eligibilityCount,
