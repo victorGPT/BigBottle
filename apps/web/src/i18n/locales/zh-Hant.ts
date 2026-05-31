@@ -116,7 +116,7 @@ const locale = {
     "scan.tipsTitle": "掃描提示",
     "scan.tipsBody": "保持發票平整且清晰可見",
     "scan.rulesTitle": "領取規則",
-    "scan.rules.voter": "投票或 GM-NFT 用戶：一週內每天有 1 次成功機會，並享受 100 倍積分加成。",
+    "scan.rules.voter": "投票或 GM-NFT 用戶：一週內每天有 1 次成功機會，發票基礎積分最高 2 分後再享受 100 倍加成。",
     "scan.rules.upload": "發票上傳：投票或 GM-NFT 用戶每天最多 2 次上傳，失敗也計入。",
     "scan.rules.nonVoter": "無投票和 GM-NFT 加成用戶：一週最多上傳 1 張發票，每張最高 2 積分（0.02 B3TR）。",
     "scan.rules.timeWindow": "發票時間：必須在目前時間前 7 天內；允許最多 12 小時的未來時間偏差。",

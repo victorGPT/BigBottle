@@ -1484,7 +1484,7 @@ type DifyDrinkItem = {
 
 const MAX_ITEMS = 25;
 const MAX_AMOUNT = 20;
-const MAX_TOTAL_POINTS = 20;
+const MAX_TOTAL_POINTS = 2;
 
 function clampInt(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;

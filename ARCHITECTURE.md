@@ -188,7 +188,7 @@ Flow:
 
 Observable scan behavior:
 - The capture screen shows localized reward rule copy before upload:
-- VeBetterDAO voters and GM-NFT holders: one successful chance per day within a week and 100x receipt point multiplier.
+- VeBetterDAO voters and GM-NFT holders: one successful chance per day within a week; base receipt points are capped at 2 before the 100x receipt point multiplier.
   - VeDelegate pool voters are treated as VeBetterDAO voters when the pool account is mapped back to the owning wallet.
   - Receipt uploads: at most two receipt uploads per user, including failed attempts; after two unsuccessful attempts no more are processed.
 - Users without vote or GM-NFT bonus privileges: at most one upload chance per week; each verified receipt is capped at 2 points (0.02 B3TR).
@@ -373,7 +373,7 @@ File: `apps/api/src/scoring.ts`
 - `parseAmount(input: unknown): number`
 - `pointsForCapacityMl(capacityMl: number | null): number`
 - `computeTotalPoints(drinkList: unknown): { totalPoints: number, items: ... }`
-- Base receipt scoring is capped at 20 points before bonus multipliers are applied.
+- Base receipt scoring is capped at 2 points before bonus multipliers are applied.
 
 ### Storage Policy
 On `rejected`, backend best-effort deletes the receipt image from S3.
@@ -530,6 +530,10 @@ Constraints:
 
 ### `supabase/migrations/202605180002_receipt_base_points_cap.sql`
 - Adds a `points_base <= 20` database constraint for new/updated receipt submissions. The constraint is `not valid` so historical rows above the cap remain auditable while future writes are blocked.
+
+### `supabase/migrations/202606010001_receipt_base_points_cap_two.sql`
+- Replaces the receipt base-points constraint with `points_base <= 2`.
+- Reprices unsettled verified receipt submissions to `points_base <= 2` while preserving their stored multiplier. Receipts already locked by `pending`, `pending_review`, `submitted`, or `confirmed` reward claim sources are left unchanged.
 
 ### `supabase/migrations/202605180003_reprice_unsettled_receipt_points.sql`
 - Reprices existing verified receipt submissions that have not been attached to a `pending`, `submitted`, or `confirmed` reward claim source. These unsettled receipts are recalculated with `points_base <= 20` while preserving their stored multiplier.

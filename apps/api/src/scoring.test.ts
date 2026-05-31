@@ -56,7 +56,7 @@ describe('scoring', () => {
     // 500 => 2 * 1
     // 1000 => 10 * 2
     // null => 0
-    expect(res.totalPoints).toBe(20);
+    expect(res.totalPoints).toBe(2);
   });
 
   it('caps total points to avoid runaway scoring', () => {
@@ -65,7 +65,7 @@ describe('scoring', () => {
       { retinfoDrinkCapacity: 2000, retinfoDrinkAmount: 999 }
     ]);
     // Each item: 15 * 20 = 300, total would be 600 but capped.
-    expect(res.totalPoints).toBe(20);
+    expect(res.totalPoints).toBe(2);
   });
 
   it('limits max processed drinkList length', () => {
@@ -97,14 +97,14 @@ describe('scoring', () => {
       { retinfoDrinkCapacity: 1000, retinfoDrinkAmount: 1 }
     ]);
 
-    expect(base.totalPoints).toBe(12);
-    expect(applyPointsMultiplier(base.totalPoints, 100)).toBe(1200);
-    expect(applyPointsMultiplier(base.totalPoints, 200)).toBe(2400);
+    expect(base.totalPoints).toBe(2);
+    expect(applyPointsMultiplier(base.totalPoints, 100)).toBe(200);
+    expect(applyPointsMultiplier(base.totalPoints, 200)).toBe(400);
   });
 
   it('caps receipts without bonus privileges to 2 points', () => {
     expect(computeReceiptAwardPoints(20, 1)).toBe(2);
     expect(computeReceiptAwardPoints(1, 1)).toBe(1);
-    expect(computeReceiptAwardPoints(20, 100)).toBe(2000);
+    expect(computeReceiptAwardPoints(2, 100)).toBe(200);
   });
 });
