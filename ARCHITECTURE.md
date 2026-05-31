@@ -205,6 +205,7 @@ Receipt quota enforcement:
 - `weekly_verified_limit_exceeded`: user without vote/GM-NFT bonus already has two verified receipts for the UTC week.
 - The DB trigger `public.bb_enforce_daily_receipt_submission_limits()` is the final concurrency guard for these limits. Despite the historical function name, it now enforces voter daily limits and non-voter weekly limits.
 - The DB trigger `public.bb_reject_duplicate_receipt_time_second()` rejects later `verified` submissions when any user already has a verified receipt with the same normalized `YYYY-MM-DD HH:MI:SS` receipt timestamp. The first verified row is kept globally; later rows become `status = rejected`, `rejection_code = duplicate_receipt_time`, and `duplicate_of = <first row id>`.
+- The DB trigger `public.bb_blacklist_shared_receipt_fingerprint_trigger()` adds every wallet that has ever submitted a shared receipt fingerprint to `public.reward_claim_blacklist` once that fingerprint has been submitted by three or more distinct wallets. The rule uses `public.bb_receipt_fingerprint(receipt_time_raw, dify_drink_list)` and applies to verified and rejected rows when the analyzer captured enough receipt data to compute a fingerprint.
 
 ### Receipt Result UI
 File: `apps/web/src/app/pages/ResultPage.tsx`
@@ -302,7 +303,7 @@ Auth:
 - `POST /auth/verify` -> `{ access_token: string, user: { id, wallet_address } }`
 - `GET /me` (auth) -> `{ user }`
 - Blacklisted wallets return `403 { error: "wallet_blacklisted" }` on auth challenge, auth verify, and authenticated API routes.
-- Reward-claim-blacklisted wallets can still authenticate and use the app, but reward quote availability is zeroed and claim source selection returns no receipt submissions.
+- Reward-claim-blacklisted wallets can still authenticate, upload receipts, and use the app, but reward quote availability is zeroed and claim source selection returns no receipt submissions.
 
 Account:
 - `GET /account/summary` (auth) -> `{ summary: { points_total: number, level: null } }`
@@ -575,6 +576,12 @@ Constraints / indexes:
 
 ### `supabase/migrations/202605310001_receipt_fingerprint_pgcrypto_schema.sql`
 - Replaces `public.bb_receipt_fingerprint(receipt_time_raw text, dify_drink_list jsonb)` so it calls `extensions.digest(...)` explicitly. This keeps receipt dedup hashing working on self-hosted Supabase instances where `pgcrypto` is installed in the `extensions` schema instead of `public`.
+
+### `supabase/migrations/202606010002_three_wallet_receipt_fingerprint_blacklist.sql`
+- Adds `receipt_submissions_computed_receipt_fingerprint_idx` on computed receipt fingerprint plus `user_id`.
+- Adds `public.bb_blacklist_shared_receipt_fingerprint(p_receipt_fingerprint text, p_current_user_id uuid default null) -> integer`, which inserts all distinct wallets for the fingerprint into `public.reward_claim_blacklist` when the fingerprint has been submitted by three or more wallets.
+- Backfills existing shared fingerprints so the rule applies retroactively.
+- Adds trigger `blacklist_shared_receipt_fingerprint` on `public.receipt_submissions` after insert or updates to `receipt_time_raw`, `dify_drink_list`, or `user_id`, so future wallets that keep using an already-qualified shared receipt fingerprint are also hidden-blacklisted.
 
 ### `supabase/migrations/20260208_z_account_summary.sql`
 Functions:
