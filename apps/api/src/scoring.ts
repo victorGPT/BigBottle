@@ -6,7 +6,7 @@ export type DifyDrinkItem = {
 
 const MAX_ITEMS = 25;
 const MAX_AMOUNT = 20;
-const MAX_TOTAL_POINTS = 20;
+const MAX_TOTAL_POINTS = 2;
 export const BONUS_RECEIPT_MULTIPLIER = 100;
 export const NON_BONUS_RECEIPT_POINTS_CAP = 2;
 

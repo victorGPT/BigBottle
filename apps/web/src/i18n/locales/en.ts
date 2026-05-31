@@ -114,7 +114,7 @@ const en = {
     "scan.tipsTitle": "Scanning tips",
     "scan.tipsBody": "Keep receipt flat and visible",
     "scan.rulesTitle": "Reward rules",
-    "scan.rules.voter": "Voters or GM-NFT holders: 1 successful chance per day within each week, with a 100x points multiplier.",
+    "scan.rules.voter": "Voters or GM-NFT holders: 1 successful chance per day within each week, with base receipt points capped at 2 before the 100x multiplier.",
     "scan.rules.upload": "Receipt uploads: voters or GM-NFT holders can upload up to 2 receipts per day, including failed attempts.",
     "scan.rules.nonVoter": "Users without vote or GM-NFT bonuses: up to 1 receipt upload per week, capped at 2 points (0.02 B3TR) per receipt.",
     "scan.rules.timeWindow": "Receipt time: must be within the last 7 days; up to 12 hours of future-time drift is allowed.",
