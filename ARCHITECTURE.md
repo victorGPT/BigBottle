@@ -192,6 +192,7 @@ Observable scan behavior:
   - VeDelegate pool voters are treated as VeBetterDAO voters when the pool account is mapped back to the owning wallet.
   - Receipt uploads: at most two receipt uploads per user, including failed attempts; after two unsuccessful attempts no more are processed.
 - Users without vote or GM-NFT bonus privileges: at most one upload chance per week; each verified receipt is capped at 2 points (0.02 B3TR).
+- Receipt time must be within the last 7 days, with up to 12 hours of future-time drift allowed for timezone/OCR variance.
 
 Receipt quota enforcement:
 - `POST /submissions/init` rejects new uploads with `429` before issuing a presigned URL when quota is exhausted.

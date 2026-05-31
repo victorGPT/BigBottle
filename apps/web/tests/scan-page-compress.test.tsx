@@ -68,6 +68,9 @@ describe('ScanPage', () => {
     expect(
       screen.getByText('Users without vote or GM-NFT bonuses: up to 1 receipt upload per week, capped at 2 points (0.02 B3TR) per receipt.')
     ).toBeInTheDocument();
+    expect(
+      screen.getByText('Receipt time: must be within the last 7 days; up to 12 hours of future-time drift is allowed.')
+    ).toBeInTheDocument();
   });
 
   it('retries upload with acl header when first put returns 403', async () => {
