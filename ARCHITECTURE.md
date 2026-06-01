@@ -654,7 +654,7 @@ VeChain / VeBetterDAO (Phase 2 rewards):
 - `scripts/ci/sync-vote-bonus.mjs` syncs VeBetterDAO `allocationVotes` into `public.vote_wallet_mapping`, enriches VeDelegate pool voter rows through `veDelegateAccounts.token.owner`, and generates 100x `public.bigbottle_vote_bonus_eligibility` rows for the effective round.
 
 Cloudflare Turnstile:
-- Web helper `apps/web/src/util/turnstile.ts` loads the official Turnstile script and returns invisible challenge tokens when `VITE_TURNSTILE_SITE_KEY` is configured.
+- Web helper `apps/web/src/util/turnstile.ts` loads the official Turnstile script and returns invisible challenge tokens when `VITE_TURNSTILE_SITE_KEY` is configured. It waits up to 30 seconds per challenge attempt and retries once on client-side Turnstile timeouts.
 - API and Edge routes verify tokens server-side with `TURNSTILE_SECRET_KEY`; if the secret is omitted, local/dev routes skip Turnstile and still record abuse telemetry as not required.
 
 Dify:
