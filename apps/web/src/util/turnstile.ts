@@ -1,5 +1,7 @@
 const TURNSTILE_SITE_KEY = (import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined)?.trim() ?? '';
 const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const CHALLENGE_TIMEOUT_MS = 30_000;
+const MAX_ATTEMPTS = 2;
 
 type TurnstileAction = 'submission_init' | 'reward_claim';
 
@@ -22,18 +24,17 @@ function loadTurnstileScript(): Promise<void> {
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error('turnstile_load_failed'));
+    script.onerror = () => {
+      scriptPromise = null;
+      reject(new Error('turnstile_load_failed'));
+    };
     document.head.appendChild(script);
   });
 
   return scriptPromise;
 }
 
-export async function getTurnstileToken(action: TurnstileAction): Promise<string | null> {
-  if (!TURNSTILE_SITE_KEY) return null;
-  await loadTurnstileScript();
-  if (!window.turnstile) throw new Error('turnstile_unavailable');
-
+async function executeTurnstile(action: TurnstileAction): Promise<string> {
   const container = document.createElement('div');
   container.style.position = 'fixed';
   container.style.left = '-9999px';
@@ -57,7 +58,7 @@ export async function getTurnstileToken(action: TurnstileAction): Promise<string
 
     timer = window.setTimeout(() => {
       finish(null, new Error('turnstile_timeout'));
-    }, 10_000);
+    }, CHALLENGE_TIMEOUT_MS);
 
     const renderedWidgetId = window.turnstile!.render(container, {
       sitekey: TURNSTILE_SITE_KEY,
@@ -75,4 +76,25 @@ export async function getTurnstileToken(action: TurnstileAction): Promise<string
     widgetId = renderedWidgetId;
     window.turnstile!.execute(widgetId);
   });
+}
+
+export async function getTurnstileToken(action: TurnstileAction): Promise<string | null> {
+  if (!TURNSTILE_SITE_KEY) return null;
+  await loadTurnstileScript();
+  if (!window.turnstile) throw new Error('turnstile_unavailable');
+
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await executeTurnstile(action);
+    } catch (err) {
+      lastError = err;
+      const message = err instanceof Error ? err.message : String(err);
+      if (message !== 'turnstile_timeout' || attempt === MAX_ATTEMPTS) {
+        throw err;
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('turnstile_timeout');
 }
