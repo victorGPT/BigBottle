@@ -304,6 +304,7 @@ Auth:
 - `GET /me` (auth) -> `{ user }`
 - Blacklisted wallets return `403 { error: "wallet_blacklisted" }` on auth challenge, auth verify, and authenticated API routes.
 - Reward-claim-blacklisted wallets can still authenticate, upload receipts, and use the app, but reward quote availability is zeroed and claim source selection returns no receipt submissions.
+- Wallets with any `public.vote_wallet_mapping.voted_bigbottle = true` row cannot remain reward-claim-blacklisted. Inserts or updates into `public.reward_claim_blacklist` are skipped for these voters, and later BigBottle vote mapping writes remove existing hidden reward blacklist rows for the passport or voter wallet.
 
 Account:
 - `GET /account/summary` (auth) -> `{ summary: { points_total: number, level: null } }`
@@ -587,6 +588,12 @@ Constraints / indexes:
 - Adds `receipt_submissions_receipt_second_fingerprint_verified_idx` for duplicate lookup by normalized receipt timestamp plus computed receipt fingerprint.
 - Replaces `public.bb_reject_duplicate_receipt_time_second()` so timestamp duplicates only reject when the computed receipt fingerprint also matches.
 - Removes `receipt_time_duplicate_exploit` hidden reward-claim blacklist rows that no longer qualify under the stricter timestamp-plus-content rule.
+
+### `supabase/migrations/202606020002_bigbottle_voters_reward_blacklist_exemption.sql`
+- Adds `public.bb_has_bigbottle_vote(p_wallet_address text) -> boolean`, checking `public.vote_wallet_mapping` for any direct or delegated BigBottle vote.
+- Adds trigger `skip_reward_blacklist_for_bigbottle_voters` so `public.reward_claim_blacklist` cannot insert or update rows for wallets that have voted for BigBottle.
+- Adds trigger `remove_reward_blacklist_after_bigbottle_vote` so future BigBottle vote mapping writes remove existing hidden reward blacklist rows for the passport or voter wallet.
+- Backfills the exemption by deleting current hidden reward blacklist rows for wallets that have voted for BigBottle.
 
 ### `supabase/migrations/20260208_z_account_summary.sql`
 Functions:
