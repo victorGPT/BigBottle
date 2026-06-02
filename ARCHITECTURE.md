@@ -204,7 +204,7 @@ Receipt quota enforcement:
 - `weekly_upload_limit_exceeded`: user without vote/GM-NFT bonus already used one upload attempt for the UTC week.
 - `weekly_verified_limit_exceeded`: user without vote/GM-NFT bonus already has two verified receipts for the UTC week.
 - The DB trigger `public.bb_enforce_daily_receipt_submission_limits()` is the final concurrency guard for these limits. Despite the historical function name, it now enforces voter daily limits and non-voter weekly limits.
-- The DB trigger `public.bb_reject_duplicate_receipt_time_second()` rejects later `verified` submissions when any user already has a verified receipt with the same normalized `YYYY-MM-DD HH:MI:SS` receipt timestamp. The first verified row is kept globally; later rows become `status = rejected`, `rejection_code = duplicate_receipt_time`, and `duplicate_of = <first row id>`.
+- The DB trigger `public.bb_reject_duplicate_receipt_time_second()` rejects later `verified` submissions when any user already has a verified receipt with both the same normalized `YYYY-MM-DD HH:MI:SS` receipt timestamp and the same `public.bb_receipt_fingerprint(receipt_time_raw, dify_drink_list)` content hash. The first matching row is kept globally; later matching rows become `status = rejected`, `rejection_code = duplicate_receipt_time`, and `duplicate_of = <first row id>`.
 - The DB trigger `public.bb_blacklist_shared_receipt_fingerprint_trigger()` adds every wallet that has ever submitted a shared receipt fingerprint to `public.reward_claim_blacklist` once that fingerprint has been submitted by three or more distinct wallets. The rule uses `public.bb_receipt_fingerprint(receipt_time_raw, dify_drink_list)` and applies to verified and rejected rows when the analyzer captured enough receipt data to compute a fingerprint.
 
 ### Receipt Result UI
@@ -582,6 +582,11 @@ Constraints / indexes:
 - Adds `public.bb_blacklist_shared_receipt_fingerprint(p_receipt_fingerprint text, p_current_user_id uuid default null) -> integer`, which inserts all distinct wallets for the fingerprint into `public.reward_claim_blacklist` when the fingerprint has been submitted by three or more wallets.
 - Backfills existing shared fingerprints so the rule applies retroactively.
 - Adds trigger `blacklist_shared_receipt_fingerprint` on `public.receipt_submissions` after insert or updates to `receipt_time_raw`, `dify_drink_list`, or `user_id`, so future wallets that keep using an already-qualified shared receipt fingerprint are also hidden-blacklisted.
+
+### `supabase/migrations/202606020001_receipt_time_duplicate_requires_content_match.sql`
+- Adds `receipt_submissions_receipt_second_fingerprint_verified_idx` for duplicate lookup by normalized receipt timestamp plus computed receipt fingerprint.
+- Replaces `public.bb_reject_duplicate_receipt_time_second()` so timestamp duplicates only reject when the computed receipt fingerprint also matches.
+- Removes `receipt_time_duplicate_exploit` hidden reward-claim blacklist rows that no longer qualify under the stricter timestamp-plus-content rule.
 
 ### `supabase/migrations/20260208_z_account_summary.sql`
 Functions:
