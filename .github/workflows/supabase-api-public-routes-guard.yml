@@ -14,19 +14,16 @@ jobs:
   public-routes-guard:
     runs-on: ubuntu-latest
     env:
-      API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.SUPABASE_API_BASE_URL || 'https://tbvkyvxdhrmfprcjyvbk.supabase.co/functions/v1/api' }}
-      SUPABASE_PROJECT_REF: tbvkyvxdhrmfprcjyvbk
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.SUPABASE_API_BASE_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
       - name: Ensure public auth routes stay public
         run: |
           set -euo pipefail
-          bash scripts/ci/ensure_supabase_public_auth_routes.sh "${API_BASE_URL}"
+          if [[ -z "${API_BASE_URL:-}" ]]; then
+            echo "API_BASE_URL is empty. Please set repository variable SUPABASE_API_BASE_URL." >&2
+            exit 1
+          fi
+          bash scripts/ci/check_supabase_public_auth_routes.sh "${API_BASE_URL}"

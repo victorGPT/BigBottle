@@ -70,6 +70,7 @@ EOF
   COUNT_FILE="${tmp_dir}/count" \
   LOG_FILE="${log_file}" \
   MODE="${mode}" \
+  API_BASE_URL="https://example.test/functions/v1/api" \
   CHECK_SCRIPT="${tmp_dir}/check.sh" \
   DEPLOY_SCRIPT="${tmp_dir}/deploy.sh" \
   "${TARGET_SCRIPT}" >/dev/null 2>&1

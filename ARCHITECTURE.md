@@ -405,11 +405,14 @@ Config:
   - `BB_SUPABASE_URL`
   - `BB_SUPABASE_SERVICE_ROLE_KEY`
 - Deployment guardrails:
-  - `scripts/ci/deploy_supabase_api.sh` is the canonical deploy path, enforces `--no-verify-jwt --use-api`, and verifies `verify_jwt=false` after deploy.
-  - `scripts/ci/check_supabase_public_auth_routes.sh` probes `/health` and `/auth/challenge` as public routes.
+  - AWS self-hosted Supabase is the production target. GitHub Actions must use `SUPABASE_URL=https://aws-supabase.bigbottle.vet`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_API_BASE_URL=https://aws-supabase.bigbottle.vet/functions/v1/api` instead of the removed hosted Supabase project ref.
+  - `scripts/ci/check_supabase_public_auth_routes.sh` probes `/health` and `/auth/challenge` as public routes. It requires an explicit API base URL and does not fall back to the removed hosted Supabase URL.
+  - `.github/workflows/supabase-api-public-routes-guard.yml` runs scheduled HTTP drift checks against the AWS public API endpoint. It does not auto-deploy through the hosted Supabase CLI.
+  - `scripts/ci/check_vote_eligibility_rest.mjs` audits vote bonus eligibility through Supabase REST with the service role key, avoiding direct Postgres exposure from GitHub-hosted runners.
+  - `scripts/ci/sync_vechain_node_holders.py` supports REST upsert with `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`; `DATABASE_URL` is only a local/backward-compatible fallback.
+  - `scripts/ci/deploy_supabase_api.sh` remains the legacy hosted Supabase deploy helper and is not the AWS self-hosted production deployment path.
   - `scripts/ci/check_supabase_api_deploy_canonical.sh` rejects raw `supabase functions deploy api ...` usage outside the canonical deploy script.
   - `scripts/setup-supabase.sh` delegates interactive deploys to the canonical deploy script instead of issuing a raw deploy directly.
-  - `.github/workflows/supabase-api-public-routes-guard.yml` runs scheduled drift checks against the public API endpoint.
   - `.github/workflows/supabase-api-deploy-guard-ci.yml` runs the shell guard tests plus the static canonical-deploy check on PRs.
 - AWS self-hosted migration assets:
   - `docs/aws-supabase-migration-plan.md`: EC2/Docker Compose self-hosted Supabase migration, cutover, and rollback plan.

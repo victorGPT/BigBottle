@@ -17,18 +17,13 @@ jobs:
   audit-vote-eligibility:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       DEFAULT_EFFECTIVE_ROUND_ID: ${{ vars.VEBETTER_CURRENT_EFFECTIVE_ROUND_ID || '' }}
       ROUND_SOURCE_SUBGRAPH_URL: ${{ vars.VEBETTER_ROUND_SOURCE_SUBGRAPH_URL || 'https://graph.vet/subgraphs/name/vebetter/dao' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install postgresql-client
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
 
       - name: Resolve effective round id
         id: resolve_round
@@ -37,8 +32,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -z "${DATABASE_URL:-}" ]]; then
-            echo "DATABASE_URL is empty. Please set repository secret SUPABASE_DB_URL." >&2
+          if [[ -z "${SUPABASE_URL:-}" ]]; then
+            echo "SUPABASE_URL is empty. Please set repository secret SUPABASE_URL." >&2
+            exit 1
+          fi
+          if [[ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY is empty. Please set repository secret SUPABASE_SERVICE_ROLE_KEY." >&2
             exit 1
           fi
 
@@ -64,8 +63,8 @@ jobs:
               resolved_round_id="${DEFAULT_EFFECTIVE_ROUND_ID}"
               echo "Subgraph resolve unavailable/invalid ('${chain_current_round}'); fallback to repo variable VEBETTER_CURRENT_EFFECTIVE_ROUND_ID=${resolved_round_id}"
             else
-              resolved_round_id="$(psql -X "${DATABASE_URL}" -v ON_ERROR_STOP=1 -Atqc "with maxes as (select coalesce((select max(effective_round_id) from public.bigbottle_vote_bonus_eligibility where bonus_type='vebetter_vote_bonus'),0) as max_effective_round, coalesce((select max(round_id) from public.vote_wallet_mapping where voted_any_app=true),0) as max_source_round) select case when max_source_round > 0 then greatest(max_effective_round, max_source_round + 1) else max_effective_round end from maxes;")"
-              echo "Subgraph/variable unavailable; DB-resolved effective_round_id=${resolved_round_id}"
+              echo "Failed to resolve effective_round_id from subgraph, and VEBETTER_CURRENT_EFFECTIVE_ROUND_ID is not set." >&2
+              exit 1
             fi
           fi
 
@@ -81,4 +80,4 @@ jobs:
           EFFECTIVE_ROUND_ID: ${{ steps.resolve_round.outputs.effective_round_id }}
         run: |
           set -euo pipefail
-          bash scripts/ci/check_vote_eligibility.sh
+          node scripts/ci/check_vote_eligibility_rest.mjs

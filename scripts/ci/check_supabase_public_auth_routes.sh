@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-API_BASE_URL="${1:-${API_BASE_URL:-https://tbvkyvxdhrmfprcjyvbk.supabase.co/functions/v1/api}}"
+API_BASE_URL="${1:-${API_BASE_URL:-}}"
 SAMPLE_ADDRESS="${SAMPLE_ADDRESS:-0x0000000000000000000000000000000000000001}"
+
+if [[ -z "${API_BASE_URL:-}" ]]; then
+  echo "API_BASE_URL is required." >&2
+  exit 1
+fi
 
 probe() {
   local method="$1"
