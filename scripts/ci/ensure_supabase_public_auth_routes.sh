@@ -4,7 +4,12 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHECK_SCRIPT="${CHECK_SCRIPT:-${script_dir}/check_supabase_public_auth_routes.sh}"
 DEPLOY_SCRIPT="${DEPLOY_SCRIPT:-${script_dir}/deploy_supabase_api.sh}"
-API_BASE_URL="${1:-${API_BASE_URL:-https://tbvkyvxdhrmfprcjyvbk.supabase.co/functions/v1/api}}"
+API_BASE_URL="${1:-${API_BASE_URL:-}}"
+
+if [[ -z "${API_BASE_URL:-}" ]]; then
+  echo "API_BASE_URL is required." >&2
+  exit 1
+fi
 
 run_check() {
   "${CHECK_SCRIPT}" "${API_BASE_URL}"

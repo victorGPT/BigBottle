@@ -141,6 +141,51 @@ select count(*) as upserted_rows from upserted;
     print(f"[db] upserted rows: {proc.stdout.strip()}")
 
 
+def row_to_payload(row: SnapshotRow) -> dict:
+    return {
+        "snapshot_date": row.snapshot_date,
+        "token_id": row.token_id,
+        "owner_address": row.owner_address,
+        "node_level": row.node_level,
+        "is_x": row.is_x,
+        "source": row.source,
+        "contract_address": row.contract_address,
+        "synced_at": row.synced_at,
+    }
+
+
+def run_rest_upsert(supabase_url: str, service_role_key: str, rows: list[SnapshotRow], batch_size: int = 500) -> None:
+    base = supabase_url.rstrip("/")
+    url = f"{base}/rest/v1/vechain_node_holder_daily?on_conflict=snapshot_date,contract_address,token_id"
+    headers = {
+        "apikey": service_role_key,
+        "authorization": f"Bearer {service_role_key}",
+        "content-type": "application/json",
+        "prefer": "resolution=merge-duplicates,return=minimal",
+    }
+
+    upserted = 0
+    for index in range(0, len(rows), batch_size):
+        batch = rows[index : index + batch_size]
+        req = urllib.request.Request(
+            url,
+            data=json.dumps([row_to_payload(row) for row in batch]).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                if resp.status not in {200, 201, 204}:
+                    body = resp.read().decode("utf-8", errors="replace")
+                    raise RuntimeError(f"REST upsert failed status={resp.status}: {body}")
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"REST upsert failed status={exc.code}: {body}") from exc
+
+        upserted += len(batch)
+        print(f"[db] REST upserted rows: {upserted}/{len(rows)}")
+
+
 def scan_legacy_contract(
     api_base: str,
     contract_address: str,
@@ -291,6 +336,8 @@ def scan_stargate_contract(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sync VeChain node holders daily snapshot (full-network)")
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL", ""))
+    parser.add_argument("--supabase-url", default=os.getenv("SUPABASE_URL", ""))
+    parser.add_argument("--service-role-key", default=os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""))
     parser.add_argument("--api-base", default=os.getenv("VECHAIN_NODE_CALL_API_BASE", "https://call.api.vechain.energy/main"))
     parser.add_argument(
         "--legacy-contract-address",
@@ -370,11 +417,16 @@ def main() -> int:
         print("[sync] dry-run completed (no DB write)")
         return 0
 
-    if not args.database_url:
-        raise RuntimeError("DATABASE_URL is required for non-dry-run mode")
-
     if not rows:
         raise RuntimeError("no valid holder rows fetched; aborting DB upsert")
+
+    if args.supabase_url and args.service_role_key:
+        run_rest_upsert(args.supabase_url, args.service_role_key, rows)
+        print("[sync] completed successfully")
+        return 0
+
+    if not args.database_url:
+        raise RuntimeError("SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY or DATABASE_URL is required for non-dry-run mode")
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as fp:
         writer = csv.writer(fp)

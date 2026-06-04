@@ -10,8 +10,8 @@ jobs:
   rewards-guardrails:
     runs-on: ubuntu-latest
     env:
-      REWARDS_API_BASE_URL: ${{ secrets.REWARDS_API_BASE_URL || vars.REWARDS_API_BASE_URL || vars.SUPABASE_API_BASE_URL || 'https://tbvkyvxdhrmfprcjyvbk.supabase.co/functions/v1/api' }}
-      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      REWARDS_API_BASE_URL: ${{ secrets.REWARDS_API_BASE_URL || vars.REWARDS_API_BASE_URL || vars.SUPABASE_API_BASE_URL }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,20 +36,18 @@ jobs:
             echo "REWARDS_API_BASE_URL is empty. Please set repository secret REWARDS_API_BASE_URL." >&2
             exit 1
           fi
-          if [[ -z "${SUPABASE_DB_URL:-}" ]]; then
-            echo "SUPABASE_DB_URL is empty. Please set repository secret SUPABASE_DB_URL." >&2
-            exit 1
-          fi
 
       - name: Rewards API smoke + contract
         run: pnpm -C apps/api exec node ../../scripts/ci/rewards-api-smoke-contract.mjs
 
       - name: Setup Supabase CLI
+        if: env.SUPABASE_DB_URL != ''
         uses: supabase/setup-cli@v1
         with:
           version: latest
 
       - name: Supabase migration dry-run
+        if: env.SUPABASE_DB_URL != ''
         run: |
           set +e
           output="$(supabase db push --dry-run --db-url "${SUPABASE_DB_URL}" 2>&1)"
@@ -69,3 +67,8 @@ jobs:
             exit 0
           fi
           exit "${status}"
+
+      - name: Skip Supabase migration dry-run
+        if: env.SUPABASE_DB_URL == ''
+        run: |
+          echo "SUPABASE_DB_URL is not configured; skipping hosted Supabase migration dry-run for self-hosted AWS deployment."

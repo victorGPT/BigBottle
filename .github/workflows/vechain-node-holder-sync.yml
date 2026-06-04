@@ -23,7 +23,8 @@ jobs:
   sync-vechain-node-holders:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       VECHAIN_NODE_CALL_API_BASE: ${{ vars.VECHAIN_NODE_CALL_API_BASE || 'https://call.api.vechain.energy/main' }}
       VECHAIN_NODE_LEGACY_CONTRACT_ADDRESS: ${{ vars.VECHAIN_NODE_LEGACY_CONTRACT_ADDRESS || '0xb81e9c5f9644dec9e5e3cac86b4461a222072302' }}
       VECHAIN_NODE_STARGATE_NFT_CONTRACT_ADDRESS: ${{ vars.VECHAIN_NODE_STARGATE_NFT_CONTRACT_ADDRESS || '0x1856c533ac2d94340aaa8544d35a5c1d4a21dee7' }}
@@ -33,23 +34,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install postgresql-client
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-
       - name: Sync VeChain node holder snapshot
         run: |
           set -euo pipefail
 
-          if [[ -z "${DATABASE_URL:-}" ]]; then
-            echo "DATABASE_URL is empty. Please set repository secret SUPABASE_DB_URL." >&2
+          if [[ -z "${SUPABASE_URL:-}" ]]; then
+            echo "SUPABASE_URL is empty. Please set repository secret SUPABASE_URL." >&2
+            exit 1
+          fi
+          if [[ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY is empty. Please set repository secret SUPABASE_SERVICE_ROLE_KEY." >&2
             exit 1
           fi
 
           args=(
-            --database-url "${DATABASE_URL}"
+            --supabase-url "${SUPABASE_URL}"
+            --service-role-key "${SUPABASE_SERVICE_ROLE_KEY}"
             --api-base "${VECHAIN_NODE_CALL_API_BASE}"
             --legacy-contract-address "${VECHAIN_NODE_LEGACY_CONTRACT_ADDRESS}"
             --stargate-nft-contract-address "${VECHAIN_NODE_STARGATE_NFT_CONTRACT_ADDRESS}"

@@ -7,7 +7,7 @@ on:
         description: 'VITE_API_URL'
         required: false
         type: string
-        default: 'https://tbvkyvxdhrmfprcjyvbk.supabase.co/functions/v1/api'
+        default: 'https://aws-supabase.bigbottle.vet/functions/v1/api'
       project_id:
         description: 'Canonical Vercel project id'
         required: false
